@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Involvex AI — Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Involvex AI — Settings</h1>
+      <p class="sub">
+        Keys are stored locally on this device only (chrome.storage.local) and
+        sent directly to the provider you choose. No Involvex server is
+        involved.
+      </p>
+
+      <label class="field">
+        <span>Active provider</span>
+        <select id="provider">
+          <option value="gemini">Google Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic Claude</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="opencode">OpenCode Zen</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+          <option value="ollama">Local (Ollama)</option>
+          <option value="fastvlm">FastVLM (LiteRT local)</option>
+        </select>
+      </label>
+
+      <section class="card" data-provider="gemini">
+        <h2>Google Gemini</h2>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="gemini-apiKey" placeholder="AI..." />
+        </label>
+        <div class="model-row" data-model-for="gemini"></div>
+        <p class="hint">Get a key at aistudio.google.com/apikey</p>
+      </section>
+
+      <section class="card" data-provider="openai">
+        <h2>OpenAI</h2>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="openai-apiKey" placeholder="sk-..." />
+        </label>
+        <div class="model-row" data-model-for="openai"></div>
+        <p class="hint">Get a key at platform.openai.com/api-keys</p>
+      </section>
+
+      <section class="card" data-provider="anthropic">
+        <h2>Anthropic Claude</h2>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="anthropic-apiKey" placeholder="sk-ant-..." />
+        </label>
+        <div class="model-row" data-model-for="anthropic"></div>
+        <p class="hint">Get a key at console.anthropic.com</p>
+      </section>
+
+      <section class="card" data-provider="openrouter">
+        <h2>OpenRouter</h2>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="openrouter-apiKey" placeholder="sk-or-..." />
+        </label>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            type="text"
+            id="openrouter-baseUrl"
+            placeholder="https://openrouter.ai/api/v1"
+          />
+        </label>
+        <div class="model-row" data-model-for="openrouter"></div>
+        <p class="hint">
+          One key, hundreds of models (incl. free ones). Get a key at
+          openrouter.ai/keys
+        </p>
+      </section>
+
+      <section class="card" data-provider="opencode">
+        <h2>OpenCode Zen</h2>
+        <label class="field">
+          <span>API key</span>
+          <input type="password" id="opencode-apiKey" placeholder="opencode key" />
+        </label>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            type="text"
+            id="opencode-baseUrl"
+            placeholder="https://opencode.ai/zen/v1"
+          />
+        </label>
+        <div class="model-row" data-model-for="opencode"></div>
+        <p class="hint">
+          OpenAI-compatible. Free models end with <code>-free</code>, e.g.
+          <code>mimo-v2.5-free</code>. Use <strong>Load models</strong> for the
+          full live list.
+        </p>
+      </section>
+
+      <section class="card" data-provider="custom">
+        <h2>Custom (OpenAI-compatible)</h2>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            type="text"
+            id="custom-baseUrl"
+            placeholder="http://localhost:8080/v1"
+          />
+        </label>
+        <label class="field">
+          <span>API key (optional)</span>
+          <input type="password" id="custom-apiKey" placeholder="if required" />
+        </label>
+        <div class="model-row" data-model-for="custom"></div>
+        <p class="hint">
+          For OpenCode, Kilo Code, LM Studio, vLLM, LiteLLM, or any server that
+          exposes <code>/v1/chat/completions</code>.
+        </p>
+      </section>
+
+      <section class="card" data-provider="ollama">
+        <h2>Local (Ollama)</h2>
+        <label class="field">
+          <span>Base URL</span>
+          <input
+            type="text"
+            id="ollama-baseUrl"
+            placeholder="http://localhost:11434"
+          />
+        </label>
+        <div class="model-row" data-model-for="ollama"></div>
+        <p class="hint">
+          Run a small local model, e.g. <code>ollama pull qwen2.5:3b</code>.
+          For vision: <code>ollama pull llava:7b</code>. Start with
+          <code>OLLAMA_ORIGINS=* ollama serve</code> so the extension can reach
+          it. For RAG embeddings: <code>ollama pull nomic-embed-text</code>.
+        </p>
+      </section>
+
+      <section class="card" data-provider="fastvlm">
+        <h2>FastVLM (LiteRT local)</h2>
+        <label class="field">
+          <span>Bridge URL</span>
+          <input
+            type="text"
+            id="fastvlm-baseUrl"
+            placeholder="http://127.0.0.1:8765/v1"
+          />
+        </label>
+        <div class="model-row" data-model-for="fastvlm"></div>
+        <p class="hint">
+          Download
+          <a href="https://huggingface.co/litert-community/FastVLM-0.5B" target="_blank" rel="noopener">FastVLM-0.5B.litertlm</a>.
+          <strong>Python 3.10+</strong> required for the PC bridge. On Android, run a
+          local server on the phone (HostAI or flutter_litert_lm) — see
+          <code>docs/FASTVLM-SETUP.md</code>.
+        </p>
+      </section>
+
+      <div class="actions">
+        <button id="save" class="primary">Save</button>
+        <button id="test">Test connection</button>
+        <span id="status" class="status"></span>
+      </div>
+
+      <hr class="sep" />
+
+      <h1>Prompt library</h1>
+      <p class="sub">
+        These become the quick-prompt chips on the New chat screen. Edit the
+        label (chip text) and the prompt that gets sent. Leave both empty to
+        remove a row.
+      </p>
+      <div id="promptList" class="prompt-list"></div>
+      <div class="actions">
+        <button id="promptAdd">Add prompt</button>
+        <button id="promptReset">Reset to defaults</button>
+        <button id="promptExport">Export JSON</button>
+        <button id="promptImport">Import JSON</button>
+        <input type="file" id="promptImportFile" accept="application/json,.json" hidden />
+        <button id="promptSave" class="primary">Save prompts</button>
+        <span id="promptStatus" class="status"></span>
+      </div>
+
+      <hr class="sep" />
+
+      <h1>Page RAG</h1>
+      <p class="sub">
+        On long pages, retrieve only the most relevant excerpts instead of sending
+        the full text. Uses local TF-IDF by default; enable Ollama embeddings for
+        better accuracy.
+      </p>
+      <label class="check">
+        <input type="checkbox" id="rag-useEmbeddings" />
+        <span>Use Ollama embeddings (<code>nomic-embed-text</code>) when available</span>
+      </label>
+      <label class="field">
+        <span>Embedding model</span>
+        <input type="text" id="rag-embedModel" placeholder="nomic-embed-text" />
+      </label>
+      <div class="actions">
+        <button id="ragSave" class="primary">Save RAG settings</button>
+      </div>
+
+      <hr class="sep" />
+
+      <h1>Backup &amp; Sync</h1>
+      <p class="sub">
+        Back up your bookmarks, extension settings and installed-extension list
+        to a <strong>private GitHub Gist</strong>. Serverless and free — no
+        Involvex or third-party server. API keys are never included in a backup.
+      </p>
+
+      <label class="field">
+        <span>GitHub token (scope: <code>gist</code>)</span>
+        <input type="password" id="backup-gistToken" placeholder="github_pat_... or ghp_..." />
+      </label>
+      <label class="field">
+        <span>Gist id (filled automatically after first backup)</span>
+        <input type="text" id="backup-gistId" placeholder="leave empty to create a new gist" />
+      </label>
+      <label class="check">
+        <input type="checkbox" id="backup-includeExtensions" />
+        <span>Include installed-extension list (asks for "management" permission)</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="backup-includeChatHistory" />
+        <span>Include chat history in Gist backup (merged on restore, max 50 sessions)</span>
+      </label>
+      <label class="field">
+        <span>Auto-backup schedule</span>
+        <select id="backup-autoSchedule">
+          <option value="off">Off</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button id="backupSave">Save backup settings</button>
+        <button id="backupNow" class="primary">Back up now</button>
+        <button id="restoreNow">Restore</button>
+        <span id="backupStatus" class="status"></span>
+      </div>
+      <p class="hint" id="lastBackup"></p>
+
+      <div id="restoreExtensions" class="restore-extensions" hidden>
+        <h2>Extensions from backup</h2>
+        <p class="hint">
+          These were installed on your other device. Extensions can't be
+          reinstalled automatically — tap to open each one's install page.
+        </p>
+        <ul id="restoreExtensionsList" class="ext-list"></ul>
+      </div>
+
+      <p class="hint">
+        Create a token at github.com/settings/tokens → Fine-grained or classic
+        with only the <code>gist</code> scope. Restore adds bookmarks into a new
+        "Involvex Restore" folder (it never overwrites existing bookmarks).
+      </p>
+    </div>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

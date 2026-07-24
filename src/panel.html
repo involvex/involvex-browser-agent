@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Involvex AI</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <img class="logo" src="../icons/icon48.png" alt="" />
+        <span class="brand-name">Involvex AI</span>
+      </div>
+      <div class="bar-actions">
+        <label class="toggle agent-toggle" title="Agent mode: let the AI click, fill and navigate">
+          <input type="checkbox" id="agentToggle" />
+          <span>Agent</span>
+        </label>
+        <button id="historyBtn" class="text-btn" type="button">Chats</button>
+        <button id="exportBtn" class="text-btn" type="button">Export</button>
+        <button id="newBtn" class="text-btn" type="button">New</button>
+        <button id="settingsBtn" class="text-btn" type="button">Settings</button>
+      </div>
+    </header>
+
+    <div class="model-bar">
+      <label class="model-field">
+        <span class="model-label">Provider</span>
+        <select id="providerSelect" class="provider-select" title="Provider"></select>
+      </label>
+      <label class="model-field">
+        <span class="model-label">Model</span>
+        <select id="modelSelect" class="model-select" title="Model"></select>
+      </label>
+    </div>
+
+    <div id="providerLine" class="provider-line">Loading settings…</div>
+
+    <div class="mode-toggles">
+      <label class="toggle" title="Retrieve only relevant page excerpts (good for long pages)">
+        <input type="checkbox" id="ragToggle" />
+        <span>RAG</span>
+      </label>
+      <label class="toggle" id="visionWrap" title="Attach a screenshot for vision models (FastVLM, Gemini, Ollama llava)">
+        <input type="checkbox" id="visionToggle" />
+        <span>Vision</span>
+      </label>
+    </div>
+
+    <div class="chat-area">
+      <main id="messages" class="messages">
+        <div class="empty" id="empty">
+          <p class="empty-title">Ask about this page</p>
+          <p class="empty-sub">
+            I can read the page you're on, summarize it, explain selections, and
+            — in Agent mode — click, fill and navigate for you.
+          </p>
+          <div class="quick">
+            <button class="chip" type="button" data-prompt="Summarize this page in a few bullet points.">Summarize page</button>
+            <button class="chip" type="button" data-prompt="What is this page about and what can I do here?">What is this?</button>
+            <button class="chip" type="button" data-prompt="List the key links and actions on this page.">Key links</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <form id="composer" class="composer">
+      <textarea
+        id="input"
+        rows="1"
+        placeholder="Ask about this page…"
+        autocomplete="off"
+      ></textarea>
+      <button id="send" type="submit" class="send" title="Send">➤</button>
+    </form>
+
+    <!-- Full-screen overlays at body level so [hidden]/display work reliably -->
+    <div id="historyBackdrop" class="history-backdrop" hidden></div>
+    <div id="historyPanel" class="history-panel" hidden>
+      <div class="history-head">
+        <span class="history-title-bar">Chat history</span>
+        <button id="historyClose" class="text-btn" type="button">Close</button>
+        <input id="historySearch" type="search" placeholder="Search past chats…" />
+      </div>
+      <ul id="historyList" class="history-list"></ul>
+      <div class="history-foot">
+        <button id="historyClear" class="danger-link" type="button">Clear all history</button>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="panel.js" type="module"></script>
+  </body>
+</html>
