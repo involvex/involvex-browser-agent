@@ -8,7 +8,7 @@ This file contains instructions for AI agents working on the Involvex AI Agent p
 
 **Involvex AI Agent** is a Chrome extension (Manifest V3) that provides an on-tap AI assistant. It reads and acts on the current web page, supports multiple AI providers, and includes a private backup system via GitHub Gists.
 
-**Current version:** 0.6.5
+**Current version:** 0.8.0
 
 ### Key Features
 
@@ -46,7 +46,8 @@ involvex-ai-agent/
 │   └── fastvlm-bridge.py   # FastVLM LiteRT bridge server
 ├── .env.example            # Template for local secrets (gitignored)
 ├── CHANGELOG.md            # Release notes
-└── ROADMAP.md              # Planned features
+├── ROADMAP.md              # Backlog source of truth (v0.7 / v0.8 / Later)
+└── suggestions.md          # Archived ideas (status tags → ROADMAP)
 ```
 
 ### Data Flow
@@ -157,6 +158,8 @@ adb reverse tcp:8765 tcp:8765
 - Use `chrome.scripting.executeScript` with `world: "MAIN"` for page access.
 - Agent mode tool calls are executed via injected functions — ensure they are pure and self-contained.
 - The agentic loop is provider-agnostic: the model returns a JSON block with one tool per turn.
+  Tools include read/click/fill/navigate/scroll plus wait_for_element, scroll_to_element,
+  and extract_data. Sensitive navigate/click actions can require panel confirmation.
 
 ### Security
 
@@ -206,7 +209,8 @@ When adding or modifying a provider:
 
 - Version is defined in `manifest.json` (`version` field).
 - `CHANGELOG.md` documents all notable changes per version.
-- `ROADMAP.md` tracks done, next, and idea features.
+- `ROADMAP.md` is the backlog source of truth (Done · v0.7 · v0.8 · Later).
+  `suggestions.md` is an archived idea list with status tags.
 - Package scripts read the version from `manifest.json` automatically.
 
 ---
@@ -243,4 +247,5 @@ When adding or modifying a provider:
 | `scripts/fastvlm-bridge.py` | FastVLM LiteRT vision bridge server |
 | `.env.example` | Template for local secrets |
 | `CHANGELOG.md` | Release notes |
-| `ROADMAP.md` | Feature roadmap |
+| `ROADMAP.md` | Feature roadmap (source of truth) |
+| `suggestions.md` | Archived idea list (status tags → ROADMAP) |

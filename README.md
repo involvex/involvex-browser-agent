@@ -13,7 +13,9 @@ desktop Chrome/Edge without rebuilding the browser.
 - **Reads the page**: summaries, Q&A, and answers grounded in the page content.
 - **Selection actions**: right-click selected text → Explain / Translate / Rewrite.
 - **Agent mode** (toggle): the model can `read_page`, `click`, `fill`,
-  `navigate`, and `scroll` to complete multi-step tasks. Capped at 8 steps.
+  `navigate`, `scroll`, `wait_for_element`, `scroll_to_element`, and
+  `extract_data` (8-step cap). Pause/cancel + confirmations for sensitive
+  actions.
 - **Multi-provider**: Google Gemini, OpenAI, Anthropic Claude, **OpenRouter**
   (hundreds of models, incl. free), **OpenCode Zen** (default `mimo-v2.5-free`),
   a **Custom OpenAI-compatible endpoint** (Kilo Code, LM Studio, vLLM, LiteLLM…),
@@ -37,6 +39,13 @@ desktop Chrome/Edge without rebuilding the browser.
   **FastVLM** (LiteRT), Gemini, OpenAI, and Ollama vision models (`llava`, etc.).
 - **Prompt library JSON**: Export / Import in Settings.
 - **Gist chat sync**: optional chat history in backup (Settings → Backup).
+- **Keyboard shortcuts**: `Ctrl+Shift+A` open, `N` new chat, `G` Agent, `R` RAG
+  (customize under `chrome://extensions` → Keyboard shortcuts).
+- **Regenerate**: redo the latest assistant reply from the same user turn.
+- **Theme**: System / Dark / Light in Settings → Appearance.
+- **Custom system prompts**: edit Ask and Agent base instructions in Settings.
+- **Prompt library Gist sync**: optional include on backup (like chat history).
+- **Vision polish**: screenshots crop toward main content and compress before send.
 
 ## Install (developer load)
 
@@ -60,7 +69,7 @@ pwsh scripts/adb-update.ps1 -ClearCache   # force-stop + clear cache, then open 
 ```
 
 On the device the script opens `chrome://extensions/?id=…`. **Tap Reload**
-(Chromium Android cannot click that button for you), confirm version **0.6.5**,
+(Chromium Android cannot click that button for you), confirm version **0.8.0**,
 then close and reopen the AI panel tab.
 
 Browser package defaults to auto-detect (`io.github.jqssun.helium` or
@@ -168,7 +177,9 @@ bash scripts/package-extension.sh          # -> dist/involvex-ai-agent-<version>
 pwsh scripts/package-extension.ps1
 ```
 
-See `CHANGELOG.md` for release notes and `ROADMAP.md` for what's next.
+See `CHANGELOG.md` for release notes and `ROADMAP.md` for what's next
+(backlog source of truth: Done · v0.7 · v0.8 · Later). Archived
+brainstorm items with status tags live in `suggestions.md`.
 
 The agent loop is provider-agnostic: the model requests one tool per turn as a
 JSON block, the worker executes it in the page and feeds back the result until
@@ -184,7 +195,8 @@ function-calling format.
 
 ## Roadmap
 
-- Streaming responses.
-- Per-site allow/deny list for Agent mode.
-- Native toolbar button that opens this panel (deeper browser integration).
-- Custom toolbar/PNG icon set.
+See **`ROADMAP.md`** for the full prioritized backlog. Near-term highlights:
+
+- **v0.7–v0.8** (shipped) — UX polish and agent depth (streaming, site
+  allow/deny, confirmations, new tools, pause/cancel).
+- **Later** — memory, voice, i18n, MEGA, plugins.

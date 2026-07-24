@@ -1,4 +1,5 @@
-:root {
+:root,
+html[data-theme="dark"] {
   --bg: #0f1115;
   --panel: #171a21;
   --panel-2: #1f232c;
@@ -9,6 +10,19 @@
   --accent-2: #7c5cff;
   --ok: #46d38a;
   --err: #ff8a8a;
+}
+
+html[data-theme="light"] {
+  --bg: #f3f5f9;
+  --panel: #ffffff;
+  --panel-2: #e8ecf3;
+  --border: #d0d6e2;
+  --text: #1a1f2c;
+  --muted: #5a6478;
+  --accent: #3b6fd9;
+  --accent-2: #5a4fcf;
+  --ok: #1a9a5c;
+  --err: #c62828;
 }
 
 * {
@@ -70,7 +84,8 @@ h1 {
 }
 
 select,
-input {
+input,
+textarea {
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -80,8 +95,15 @@ input {
   outline: none;
 }
 
+textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.45;
+}
+
 select:focus,
-input:focus {
+input:focus,
+textarea:focus {
   border-color: var(--accent);
 }
 

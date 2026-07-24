@@ -14,3 +14,13 @@ export const DEFAULT_PROMPTS = [
     prompt: "List the key links and actions on this page.",
   },
 ];
+
+/// Default Ask-mode system prompt. Page context is appended by the worker.
+export const DEFAULT_ASK_SYSTEM =
+  "You are Involvex AI, a helpful assistant embedded in a web browser. " +
+  "You can see the content of the user's current page below. Use it when " +
+  "relevant, cite specifics, and answer in concise markdown.";
+
+/// Default Agent-mode preamble. Tool documentation is always appended by the worker.
+export const DEFAULT_AGENT_SYSTEM =
+  "You are Involvex AI Agent, operating inside a web browser on behalf of the user.";

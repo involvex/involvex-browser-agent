@@ -1,4 +1,5 @@
-:root {
+:root,
+html[data-theme="dark"] {
   --bg: #0f1115;
   --panel: #171a21;
   --panel-2: #1f232c;
@@ -8,8 +9,30 @@
   --accent: #5b8cff;
   --accent-2: #7c5cff;
   --user: #223052;
+  --user-border: #2c3d63;
   --ok: #46d38a;
   --warn: #ffb454;
+  --error-bg: #3a1d1d;
+  --error-border: #5c2a2a;
+  --error-text: #ff9a9a;
+}
+
+html[data-theme="light"] {
+  --bg: #f3f5f9;
+  --panel: #ffffff;
+  --panel-2: #e8ecf3;
+  --border: #d0d6e2;
+  --text: #1a1f2c;
+  --muted: #5a6478;
+  --accent: #3b6fd9;
+  --accent-2: #5a4fcf;
+  --user: #d9e4f7;
+  --user-border: #b7c8e8;
+  --ok: #1a9a5c;
+  --warn: #b87a12;
+  --error-bg: #fde8e8;
+  --error-border: #e8b0b0;
+  --error-text: #a32020;
 }
 
 * {
@@ -211,6 +234,61 @@ body {
   font-size: 11px;
 }
 
+.agent-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.agent-bar[hidden],
+.confirm-banner[hidden] {
+  display: none !important;
+}
+
+.agent-bar-label {
+  flex: 1;
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--accent);
+}
+
+.confirm-detail {
+  flex: 1 1 180px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: none;
+  color: white;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 #visionWrap.disabled {
   opacity: 0.45;
   pointer-events: none;
@@ -286,7 +364,7 @@ body {
 .msg.user {
   align-self: flex-end;
   background: var(--user);
-  border: 1px solid #2c3d63;
+  border: 1px solid var(--user-border);
 }
 
 .msg.assistant {
@@ -310,9 +388,30 @@ body {
 
 .msg.error {
   align-self: flex-start;
-  background: #3a1d1d;
-  border: 1px solid #5c2a2a;
-  color: #ff9a9a;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+}
+
+.msg-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.regen-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.regen-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .msg.status {

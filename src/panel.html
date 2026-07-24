@@ -48,6 +48,20 @@
       </label>
     </div>
 
+    <div id="agentBar" class="agent-bar" hidden>
+      <span id="agentBarLabel" class="agent-bar-label">Agent running</span>
+      <button id="agentPause" class="text-btn" type="button">Pause</button>
+      <button id="agentCancel" class="text-btn danger-link" type="button">Cancel</button>
+    </div>
+
+    <div id="confirmBanner" class="confirm-banner" hidden>
+      <p id="confirmDetail" class="confirm-detail"></p>
+      <div class="confirm-actions">
+        <button id="confirmOk" class="primary-btn" type="button">Allow</button>
+        <button id="confirmDeny" class="text-btn" type="button">Deny</button>
+      </div>
+    </div>
+
     <div class="chat-area">
       <main id="messages" class="messages">
         <div class="empty" id="empty">

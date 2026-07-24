@@ -1,6 +1,10 @@
 import { PROVIDERS, chat, listModels } from "./providers.js";
 import { loadEnv, envGistToken, envGistId } from "./env.js";
-import { DEFAULT_PROMPTS } from "./prompts.js";
+import {
+  DEFAULT_PROMPTS,
+  DEFAULT_ASK_SYSTEM,
+  DEFAULT_AGENT_SYSTEM,
+} from "./prompts.js";
 
 const providerSel = document.getElementById("provider");
 const statusEl = document.getElementById("status");
@@ -239,10 +243,22 @@ function setBackupStatus(text, kind) {
   backupStatusEl.className = `status ${kind || ""}`;
 }
 
+function applyTheme(themePref) {
+  const pref = themePref || "system";
+  let resolved = pref;
+  if (pref === "system") {
+    resolved = window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
+  }
+  document.documentElement.dataset.theme = resolved;
+}
+
 async function load() {
   buildModelRows();
   const { settings } = await chrome.storage.local.get("settings");
   const s = settings || { provider: "gemini" };
+  applyTheme(s.theme || "system");
   providerSel.value = s.provider || "gemini";
   for (const [provider, fields] of Object.entries(KEY_FIELDS)) {
     const cfg = s[provider] || {};
@@ -265,6 +281,7 @@ async function load() {
   el("backup-gistId").value = backup.gistId || envId || "";
   el("backup-includeExtensions").checked = !!backup.includeExtensions;
   el("backup-includeChatHistory").checked = !!backup.includeChatHistory;
+  el("backup-includePrompts").checked = !!backup.includePrompts;
   el("backup-autoSchedule").value = backup.autoSchedule || "off";
   const rag = s.rag || {};
   el("rag-useEmbeddings").checked = !!rag.useEmbeddings;
@@ -274,6 +291,14 @@ async function load() {
   } else if (envToken) {
     lastBackupEl.textContent = "GitHub token loaded from .env.";
   }
+
+  el("theme").value = s.theme || "system";
+  const sp = s.systemPrompts || {};
+  el("system-ask").value = sp.ask || DEFAULT_ASK_SYSTEM;
+  el("system-agent").value = sp.agent || DEFAULT_AGENT_SYSTEM;
+  const sites = s.agentSites || {};
+  el("agent-allow").value = (sites.allow || []).join("\n");
+  el("agent-deny").value = (sites.deny || []).join("\n");
 
   renderPrompts(s.prompts);
   showActiveCard();
@@ -324,6 +349,7 @@ async function saveBackupSettings() {
     gistId: el("backup-gistId").value.trim(),
     includeExtensions: el("backup-includeExtensions").checked,
     includeChatHistory: el("backup-includeChatHistory").checked,
+    includePrompts: el("backup-includePrompts").checked,
     autoSchedule: el("backup-autoSchedule").value || "off",
   };
   await chrome.storage.local.set({ settings: s });
@@ -433,5 +459,71 @@ el("promptImportFile").addEventListener("change", async (e) => {
   }
 });
 el("ragSave").addEventListener("click", saveRagSettings);
+
+async function saveTheme() {
+  const theme = el("theme").value || "system";
+  const { settings } = await chrome.storage.local.get("settings");
+  const s = settings || { provider: "gemini" };
+  s.theme = theme;
+  await chrome.storage.local.set({ settings: s });
+  applyTheme(theme);
+  const node = el("themeStatus");
+  node.textContent = "Theme saved.";
+  node.className = "status ok";
+}
+
+async function saveSystemPrompts() {
+  const ask = el("system-ask").value.trim() || DEFAULT_ASK_SYSTEM;
+  const agent = el("system-agent").value.trim() || DEFAULT_AGENT_SYSTEM;
+  const { settings } = await chrome.storage.local.get("settings");
+  const s = settings || { provider: "gemini" };
+  s.systemPrompts = { ask, agent };
+  await chrome.storage.local.set({ settings: s });
+  const node = el("systemStatus");
+  node.textContent = "System prompts saved.";
+  node.className = "status ok";
+}
+
+function resetSystemPrompts() {
+  el("system-ask").value = DEFAULT_ASK_SYSTEM;
+  el("system-agent").value = DEFAULT_AGENT_SYSTEM;
+  const node = el("systemStatus");
+  node.textContent = "Reset to defaults (not saved yet).";
+  node.className = "status";
+}
+
+el("themeSave").addEventListener("click", saveTheme);
+el("theme").addEventListener("change", () => applyTheme(el("theme").value));
+el("systemSave").addEventListener("click", saveSystemPrompts);
+el("systemReset").addEventListener("click", resetSystemPrompts);
+
+function parseDomainList(text) {
+  return String(text || "")
+    .split(/[\n,]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean);
+}
+
+async function saveAgentSites() {
+  const { settings } = await chrome.storage.local.get("settings");
+  const s = settings || { provider: "gemini" };
+  s.agentSites = {
+    allow: parseDomainList(el("agent-allow").value),
+    deny: parseDomainList(el("agent-deny").value),
+  };
+  await chrome.storage.local.set({ settings: s });
+  const node = el("agentSitesStatus");
+  node.textContent = `Saved ${s.agentSites.allow.length} allow / ${s.agentSites.deny.length} deny.`;
+  node.className = "status ok";
+}
+
+el("agentSitesSave").addEventListener("click", saveAgentSites);
+
+window
+  .matchMedia("(prefers-color-scheme: light)")
+  .addEventListener("change", async () => {
+    const { settings } = await chrome.storage.local.get("settings");
+    if ((settings?.theme || "system") === "system") applyTheme("system");
+  });
 
 load();

@@ -3,6 +3,34 @@
 All notable changes to the extension. Versions follow the `manifest.json`
 `version` field.
 
+## 0.8.0
+
+- **Agent streaming** — planning replies stream token-by-token (same providers as
+  Ask mode) before each tool step.
+- **Per-site Agent allow/deny** — Settings → Agent sites; deny forces Agent off,
+  allow auto-enables for matching hostnames.
+- **Safety confirmations** — navigate and sensitive clicks (submit/delete/pay/…)
+  ask Allow/Deny in the panel before running.
+- **New agent tools** — `wait_for_element`, `scroll_to_element`, `extract_data`.
+- **Agent step bar** — numbered steps plus Pause / Resume / Cancel while the
+  agent loop runs.
+
+## 0.7.0
+
+- **Keyboard shortcuts** — `Ctrl+Shift+A` open panel; `Ctrl+Shift+N` new chat;
+  `Ctrl+Shift+G` toggle Agent; `Ctrl+Shift+R` toggle RAG (rebind in
+  `chrome://extensions` → Keyboard shortcuts).
+- **Regenerate** — button on the latest assistant reply re-runs the last user
+  turn without duplicating it in history.
+- **Light / dark theme** — System / Dark / Light in Settings → Appearance;
+  applies to panel and options.
+- **Custom system prompts** — editable Ask and Agent base prompts in Settings
+  (page context and tool docs still appended automatically).
+- **Prompt library Gist UX** — optional “Include prompt library” on backup;
+  restore keeps local prompts when the Gist omitted them.
+- **Vision screenshot polish** — crop toward main/article region, max edge
+  1280px, re-encode JPEG ~0.72 for smaller vision payloads.
+
 ## 0.6.5
 
 - **Fix broken Chats / Close on Android** — `[hidden]` was overridden by

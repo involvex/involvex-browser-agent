@@ -54,13 +54,19 @@ async function collectExtensions() {
 }
 
 /// Builds the backup payload: bookmarks, non-secret settings, extension list,
-/// and optionally chat sessions.
+/// and optionally chat sessions. Prompt library is included only when opted in.
 export async function buildBackup() {
   const bookmarks = await chrome.bookmarks.getTree();
   const store = await chrome.storage.local.get(null);
   const settings = stripSecrets(store.settings || {});
   const extensions = await collectExtensions();
-  const includeChatHistory = !!(settings.backup && settings.backup.includeChatHistory);
+  const includeChatHistory = !!(
+    settings.backup && settings.backup.includeChatHistory
+  );
+  const includePrompts = !!(settings.backup && settings.backup.includePrompts);
+  if (!includePrompts) {
+    delete settings.prompts;
+  }
   const payload = {
     schema: "involvex-backup/2",
     createdAt: new Date().toISOString(),
@@ -162,6 +168,24 @@ export async function restoreBackup(backup) {
       }
     }
     merged.provider = (current && current.provider) || merged.provider;
+    // If the backup omitted prompts (opt-out), keep local prompt library.
+    if (!Object.prototype.hasOwnProperty.call(backup.settings, "prompts")) {
+      if (current && current.prompts) merged.prompts = current.prompts;
+      else delete merged.prompts;
+    }
+    // Preserve local system prompts / theme when absent from older backups.
+    if (
+      !Object.prototype.hasOwnProperty.call(backup.settings, "systemPrompts") &&
+      current?.systemPrompts
+    ) {
+      merged.systemPrompts = current.systemPrompts;
+    }
+    if (
+      !Object.prototype.hasOwnProperty.call(backup.settings, "theme") &&
+      current?.theme
+    ) {
+      merged.theme = current.theme;
+    }
     await chrome.storage.local.set({ settings: merged });
   }
   if (backup.sessions && backup.sessions.length) {

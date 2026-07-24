@@ -170,6 +170,45 @@
 
       <hr class="sep" />
 
+      <h1>Appearance</h1>
+      <p class="sub">Theme for the chat panel and this settings page.</p>
+      <label class="field">
+        <span>Theme</span>
+        <select id="theme">
+          <option value="system">System</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button id="themeSave" class="primary">Save theme</button>
+        <span id="themeStatus" class="status"></span>
+      </div>
+
+      <hr class="sep" />
+
+      <h1>System prompts</h1>
+      <p class="sub">
+        Base instructions sent with every request. Distinct from the prompt
+        library chips below. Page context (Ask) and tool docs (Agent) are still
+        appended automatically.
+      </p>
+      <label class="field">
+        <span>Ask mode</span>
+        <textarea id="system-ask" rows="4" placeholder="Ask-mode system prompt"></textarea>
+      </label>
+      <label class="field">
+        <span>Agent mode</span>
+        <textarea id="system-agent" rows="3" placeholder="Agent-mode preamble"></textarea>
+      </label>
+      <div class="actions">
+        <button id="systemSave" class="primary">Save system prompts</button>
+        <button id="systemReset" type="button">Reset to defaults</button>
+        <span id="systemStatus" class="status"></span>
+      </div>
+
+      <hr class="sep" />
+
       <h1>Prompt library</h1>
       <p class="sub">
         These become the quick-prompt chips on the New chat screen. Edit the
@@ -185,6 +224,26 @@
         <input type="file" id="promptImportFile" accept="application/json,.json" hidden />
         <button id="promptSave" class="primary">Save prompts</button>
         <span id="promptStatus" class="status"></span>
+      </div>
+
+      <hr class="sep" />
+
+      <h1>Agent sites</h1>
+      <p class="sub">
+        Auto-enable or block Agent mode by hostname (one domain per line). Deny
+        wins over allow. Leave empty for manual toggle only.
+      </p>
+      <label class="field">
+        <span>Allow list (auto-enable Agent)</span>
+        <textarea id="agent-allow" rows="3" placeholder="example.com&#10;app.mysite.dev"></textarea>
+      </label>
+      <label class="field">
+        <span>Deny list (force Agent off)</span>
+        <textarea id="agent-deny" rows="3" placeholder="bank.com&#10;mail.google.com"></textarea>
+      </label>
+      <div class="actions">
+        <button id="agentSitesSave" class="primary">Save agent sites</button>
+        <span id="agentSitesStatus" class="status"></span>
       </div>
 
       <hr class="sep" />
@@ -231,6 +290,10 @@
       <label class="check">
         <input type="checkbox" id="backup-includeChatHistory" />
         <span>Include chat history in Gist backup (merged on restore, max 50 sessions)</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="backup-includePrompts" />
+        <span>Include prompt library in Gist backup (restored when present; otherwise local prompts kept)</span>
       </label>
       <label class="field">
         <span>Auto-backup schedule</span>

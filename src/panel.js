@@ -31,6 +31,14 @@ const modelSelect = document.getElementById("modelSelect");
 const ragToggle = document.getElementById("ragToggle");
 const visionToggle = document.getElementById("visionToggle");
 const visionWrap = document.getElementById("visionWrap");
+const agentBar = document.getElementById("agentBar");
+const agentBarLabel = document.getElementById("agentBarLabel");
+const agentPauseBtn = document.getElementById("agentPause");
+const agentCancelBtn = document.getElementById("agentCancel");
+const confirmBanner = document.getElementById("confirmBanner");
+const confirmDetail = document.getElementById("confirmDetail");
+const confirmOk = document.getElementById("confirmOk");
+const confirmDeny = document.getElementById("confirmDeny");
 
 const history = [];
 let busy = false;
@@ -41,6 +49,10 @@ let targetTabId = null;
 let currentSessionId = null;
 let sessionCreatedAt = null;
 let toastTimer = null;
+let activeAgentPort = null;
+let agentPaused = false;
+let pendingConfirmId = null;
+let agentPolicyNote = "";
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -123,6 +135,31 @@ function addMessage(role, text, kind) {
   return el;
 }
 
+function clearRegenerateButtons() {
+  messagesEl.querySelectorAll(".msg-actions").forEach((node) => node.remove());
+}
+
+function attachRegenerate(msgEl) {
+  clearRegenerateButtons();
+  if (!msgEl || !msgEl.classList.contains("assistant")) return;
+  if (msgEl.classList.contains("step") || msgEl.classList.contains("error")) {
+    return;
+  }
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "regen-btn";
+  btn.textContent = "Regenerate";
+  btn.title = "Regenerate this response";
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    regenerate();
+  });
+  actions.appendChild(btn);
+  msgEl.appendChild(actions);
+}
+
 function setStatus(text) {
   if (!statusEl) {
     statusEl = document.createElement("div");
@@ -144,25 +181,71 @@ function setBusy(v) {
   busy = v;
   sendBtn.disabled = v;
   inputEl.disabled = v;
+  if (!v) {
+    hideAgentBar();
+    hideConfirm();
+    activeAgentPort = null;
+    agentPaused = false;
+  }
+}
+
+function showAgentBar(text) {
+  if (!agentBar) return;
+  agentBar.hidden = false;
+  agentBarLabel.textContent = text || "Agent running";
+  agentPauseBtn.textContent = agentPaused ? "Resume" : "Pause";
+}
+
+function hideAgentBar() {
+  if (agentBar) agentBar.hidden = true;
+}
+
+function hideConfirm() {
+  if (confirmBanner) confirmBanner.hidden = true;
+  pendingConfirmId = null;
+}
+
+function showConfirm(id, detail) {
+  pendingConfirmId = id;
+  confirmDetail.textContent = detail || "Allow this agent action?";
+  confirmBanner.hidden = false;
+}
+
+function replyConfirm(ok) {
+  if (!activeAgentPort || !pendingConfirmId) return;
+  activeAgentPort.postMessage({
+    type: "confirm_response",
+    id: pendingConfirmId,
+    ok,
+  });
+  hideConfirm();
 }
 
 function finishAssistant(text) {
   clearStatus();
+  let el;
   if (streamEl) {
     streamEl.classList.remove("streaming");
     streamEl.innerHTML = renderMarkdown(text);
+    el = streamEl;
     streamEl = null;
     streamText = "";
   } else {
-    addMessage("assistant", text);
+    el = addMessage("assistant", text);
   }
   history.push({ role: "assistant", content: text });
+  attachRegenerate(el);
   persistSession();
 }
 
 function handlePortMessage(m, port) {
-  if (m.event === "status") {
+  if (m.event === "agent_start") {
+    showAgentBar("Agent running");
+  } else if (m.event === "status") {
     setStatus(m.text);
+    if (agentBar && !agentBar.hidden) {
+      agentBarLabel.textContent = m.text || "Agent running";
+    }
   } else if (m.event === "stream_start") {
     clearStatus();
     if (emptyEl && emptyEl.parentNode) emptyEl.remove();
@@ -170,6 +253,8 @@ function handlePortMessage(m, port) {
     streamEl.className = "msg assistant streaming";
     messagesEl.appendChild(streamEl);
     scrollToBottom();
+  } else if (m.event === "stream_end") {
+    if (streamEl) streamEl.classList.remove("streaming");
   } else if (m.event === "token") {
     streamText += m.text || "";
     if (streamEl) {
@@ -178,17 +263,33 @@ function handlePortMessage(m, port) {
     }
   } else if (m.event === "step") {
     clearStatus();
+    if (streamEl) {
+      streamEl.remove();
+      streamEl = null;
+      streamText = "";
+    }
     const args =
       m.args && Object.keys(m.args).length ? " " + JSON.stringify(m.args) : "";
-    addMessage("assistant", `▸ ${m.action}${args}`, "step");
+    const n = m.step != null ? `${m.step}/${m.total || "?"} ` : "";
+    addMessage("assistant", `▸ ${n}${m.action}${args}`, "step");
     if (m.thought) setStatus(m.thought);
+    showAgentBar(`Step ${m.step || "?"} · ${m.action}`);
+  } else if (m.event === "step_result") {
+    if (m.ok === false) {
+      addMessage("assistant", `▸ ${m.action} failed`, "step");
+    }
+  } else if (m.event === "confirm") {
+    showConfirm(m.id, m.detail);
+    showAgentBar("Waiting for confirmation…");
   } else if (m.event === "assistant") {
     finishAssistant(m.text);
   } else if (m.event === "error") {
     clearStatus();
+    hideConfirm();
     addMessage("assistant", `Error: ${m.text}`, "error");
   } else if (m.event === "done") {
     clearStatus();
+    hideConfirm();
     setBusy(false);
     port.disconnect();
   }
@@ -243,12 +344,15 @@ async function sendAsk(text) {
   }
 }
 
-function send(text) {
+function send(text, opts = {}) {
   if (busy || !text.trim()) return;
   const mode = agentToggle.checked ? "agent" : "ask";
-  addMessage("user", text);
-  history.push({ role: "user", content: text });
-  persistSession();
+  if (!opts.regenerate) {
+    addMessage("user", text);
+    history.push({ role: "user", content: text });
+    persistSession();
+  }
+  clearRegenerateButtons();
   setBusy(true);
   setStatus("Connecting…");
   streamEl = null;
@@ -260,6 +364,9 @@ function send(text) {
   }
 
   const port = chrome.runtime.connect({ name: "agent" });
+  activeAgentPort = port;
+  agentPaused = false;
+  showAgentBar("Agent connecting…");
   port.onMessage.addListener((m) => handlePortMessage(m, port));
   port.onDisconnect.addListener(() => {
     clearStatus();
@@ -274,6 +381,25 @@ function send(text) {
     vision: visionToggle.checked,
     rag: ragToggle.checked,
   });
+}
+
+function regenerate() {
+  if (busy || !history.length) return;
+  let lastUserIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx < 0) return;
+  const userText = history[lastUserIdx].content;
+  history.splice(lastUserIdx + 1);
+  messagesEl.innerHTML = "";
+  for (let i = 0; i <= lastUserIdx; i++) {
+    addMessage(history[i].role, history[i].content);
+  }
+  send(userText, { regenerate: true });
 }
 
 formEl.addEventListener("submit", (e) => {
@@ -397,10 +523,13 @@ async function loadSession(id) {
   messagesEl.innerHTML = "";
   currentSessionId = s.id;
   sessionCreatedAt = s.createdAt;
+  let lastAssistantEl = null;
   for (const m of s.messages) {
     history.push({ role: m.role, content: m.content });
-    addMessage(m.role, m.content);
+    const el = addMessage(m.role, m.content);
+    if (m.role === "assistant") lastAssistantEl = el;
   }
+  if (lastAssistantEl) attachRegenerate(lastAssistantEl);
   closeHistory();
 }
 
@@ -593,6 +722,69 @@ visionToggle.addEventListener("change", () => {
   chrome.storage.local.set({ visionMode: visionToggle.checked });
 });
 
+agentPauseBtn?.addEventListener("click", () => {
+  if (!activeAgentPort) return;
+  if (agentPaused) {
+    activeAgentPort.postMessage({ type: "resume" });
+    agentPaused = false;
+    agentPauseBtn.textContent = "Pause";
+    showAgentBar("Resuming…");
+  } else {
+    activeAgentPort.postMessage({ type: "pause" });
+    agentPaused = true;
+    agentPauseBtn.textContent = "Resume";
+    showAgentBar("Paused");
+  }
+});
+
+agentCancelBtn?.addEventListener("click", () => {
+  if (!activeAgentPort) return;
+  activeAgentPort.postMessage({ type: "cancel" });
+  showAgentBar("Cancelling…");
+});
+
+confirmOk?.addEventListener("click", () => replyConfirm(true));
+confirmDeny?.addEventListener("click", () => replyConfirm(false));
+
+function hostMatches(list, host) {
+  return (list || []).some(
+    (d) => host === d || host.endsWith(`.${d}`),
+  );
+}
+
+async function applyAgentSitePolicy() {
+  agentPolicyNote = "";
+  agentToggle.disabled = false;
+  const { settings } = await chrome.storage.local.get("settings");
+  const allow = settings?.agentSites?.allow || [];
+  const deny = settings?.agentSites?.deny || [];
+  if (!allow.length && !deny.length) return;
+
+  let host = "";
+  try {
+    const tab = targetTabId
+      ? await chrome.tabs.get(targetTabId)
+      : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+    if (tab?.url) host = new URL(tab.url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch (_) {
+    return;
+  }
+  if (!host) return;
+
+  if (hostMatches(deny, host)) {
+    agentToggle.checked = false;
+    agentToggle.disabled = true;
+    agentPolicyNote = `Agent blocked on ${host}`;
+    await chrome.storage.local.set({ agentMode: false });
+    return;
+  }
+  if (hostMatches(allow, host)) {
+    agentToggle.checked = true;
+    agentToggle.disabled = false;
+    agentPolicyNote = `Agent auto-enabled on ${host}`;
+    await chrome.storage.local.set({ agentMode: true });
+  }
+}
 modelSelect.addEventListener("change", async () => {
   const { settings } = await chrome.storage.local.get("settings");
   const s = settings || { provider: "gemini" };
@@ -670,7 +862,9 @@ async function refreshHeader() {
     providerLine.classList.add("warn");
     providerLine.onclick = () => chrome.runtime.openOptionsPage();
   } else {
-    providerLine.textContent = line;
+    providerLine.textContent = agentPolicyNote
+      ? `${line} · ${agentPolicyNote}`
+      : line;
     providerLine.classList.remove("warn");
     providerLine.onclick = null;
   }
@@ -680,7 +874,24 @@ async function refreshHeader() {
   if (!canVision) visionToggle.checked = false;
 }
 
+async function applyTheme(themePref) {
+  const pref = themePref || "system";
+  let resolved = pref;
+  if (pref === "system") {
+    resolved = window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
+  }
+  document.documentElement.dataset.theme = resolved;
+}
+
+async function loadAndApplyTheme() {
+  const { settings } = await chrome.storage.local.get("settings");
+  await applyTheme(settings?.theme || "system");
+}
+
 async function init() {
+  await loadAndApplyTheme();
   const { agentMode, pendingPrompt, targetTabId: tid, ragMode, visionMode } =
     await chrome.storage.local.get([
       "agentMode",
@@ -693,6 +904,7 @@ async function init() {
   agentToggle.checked = !!agentMode;
   ragToggle.checked = ragMode !== false;
   visionToggle.checked = !!visionMode;
+  await applyAgentSitePolicy();
   await refreshHeader();
   const staticQuick = emptyEl?.querySelector(".quick");
   if (staticQuick) {
@@ -713,15 +925,51 @@ chrome.runtime.onMessage.addListener(async (msg) => {
       "targetTabId",
     ]);
     if (tid != null) targetTabId = tid;
+    await applyAgentSitePolicy();
+    await refreshHeader();
     if (pendingPrompt) {
       await chrome.storage.local.remove("pendingPrompt");
       send(pendingPrompt);
     }
   }
+  if (msg && msg.event === "command") {
+    if (msg.command === "new_chat") {
+      await newChat();
+      return;
+    }
+    if (msg.command === "toggle_agent") {
+      const { agentMode } = await chrome.storage.local.get("agentMode");
+      agentToggle.checked = !!agentMode;
+      return;
+    }
+    if (msg.command === "toggle_rag") {
+      const { ragMode } = await chrome.storage.local.get("ragMode");
+      ragToggle.checked = ragMode !== false;
+    }
+  }
 });
 
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.settings) refreshHeader();
+  if (changes.settings) {
+    applyAgentSitePolicy().then(() => refreshHeader());
+    const theme = changes.settings.newValue?.theme;
+    if (theme != null || changes.settings.oldValue?.theme != null) {
+      applyTheme(changes.settings.newValue?.theme || "system");
+    }
+  }
+  if (changes.agentMode && !agentToggle.disabled) {
+    agentToggle.checked = !!changes.agentMode.newValue;
+  }
+  if (changes.ragMode) {
+    ragToggle.checked = changes.ragMode.newValue !== false;
+  }
 });
+
+window
+  .matchMedia("(prefers-color-scheme: light)")
+  .addEventListener("change", async () => {
+    const { settings } = await chrome.storage.local.get("settings");
+    if ((settings?.theme || "system") === "system") applyTheme("system");
+  });
 
 init();

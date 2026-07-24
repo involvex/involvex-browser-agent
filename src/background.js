@@ -1,11 +1,28 @@
-import { chat, buildUserMessage } from "./providers.js";
+import { chat, chatStream, supportsStreaming, buildUserMessage } from "./providers.js";
 import { pushBackup, fetchBackup, restoreBackup } from "./backup.js";
 import { loadEnv, envGistToken, envGistId } from "./env.js";
 import { buildPageContext } from "./rag.js";
+import { DEFAULT_ASK_SYSTEM, DEFAULT_AGENT_SYSTEM } from "./prompts.js";
 
 const MAX_PAGE_CHARS = 12000;
 const MAX_AGENT_STEPS = 8;
 const PANEL_URL = "src/panel.html";
+
+/** @type {WeakMap<object, { cancelled: boolean, paused: boolean, confirmResolvers: Map<string, Function> }>} */
+const agentControls = new WeakMap();
+
+function getAgentControl(port) {
+  let c = agentControls.get(port);
+  if (!c) {
+    c = { cancelled: false, paused: false, confirmResolvers: new Map() };
+    agentControls.set(port, c);
+  }
+  return c;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 // ---- Functions injected into the page (must be self-contained) ----
 
@@ -92,6 +109,129 @@ function pageScroll(args) {
   return { ok: true, scrollY: window.scrollY };
 }
 
+function pageWaitForElement(args) {
+  const selector = args.selector;
+  if (!selector) return Promise.resolve({ ok: false, error: "selector required" });
+  const timeout = Math.min(Number(args.timeoutMs) || 5000, 15000);
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const el = document.querySelector(selector);
+      if (el) {
+        resolve({ ok: true, found: true });
+        return;
+      }
+      if (Date.now() - start >= timeout) {
+        resolve({ ok: false, error: "timeout waiting for element" });
+        return;
+      }
+      setTimeout(tick, 200);
+    };
+    tick();
+  });
+}
+
+function pageScrollToElement(args) {
+  let el = null;
+  if (args.index != null)
+    el = document.querySelector(`[data-involvex-idx="${args.index}"]`);
+  if (!el && args.selector) el = document.querySelector(args.selector);
+  if (!el && args.text) {
+    const t = String(args.text).toLowerCase();
+    const cands = document.querySelectorAll(
+      "a,button,[role=button],h1,h2,h3,label,p,li,td,th",
+    );
+    for (const c of cands) {
+      if ((c.innerText || "").toLowerCase().includes(t)) {
+        el = c;
+        break;
+      }
+    }
+  }
+  if (!el) return { ok: false, error: "element not found" };
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  return { ok: true };
+}
+
+function pageExtractData(args) {
+  const clip = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const maxRows = Math.min(Number(args.maxRows) || 20, 40);
+  const tables = [];
+  for (const table of Array.from(document.querySelectorAll("table")).slice(0, 5)) {
+    const rows = [];
+    for (const tr of Array.from(table.querySelectorAll("tr")).slice(0, maxRows)) {
+      const cells = Array.from(tr.querySelectorAll("th,td")).map((c) =>
+        clip(c.innerText).slice(0, 120),
+      );
+      if (cells.length) rows.push(cells);
+    }
+    if (rows.length) tables.push({ rows });
+  }
+  const lists = [];
+  for (const list of Array.from(
+    document.querySelectorAll("ul, ol"),
+  ).slice(0, 8)) {
+    const items = Array.from(list.querySelectorAll(":scope > li"))
+      .slice(0, maxRows)
+      .map((li) => clip(li.innerText).slice(0, 200))
+      .filter(Boolean);
+    if (items.length) lists.push({ items });
+  }
+  return { ok: true, tables, lists };
+}
+
+function pageClickLabel(args) {
+  let el = null;
+  if (args.index != null)
+    el = document.querySelector(`[data-involvex-idx="${args.index}"]`);
+  if (!el && args.selector) el = document.querySelector(args.selector);
+  if (!el && args.text) {
+    const t = String(args.text).toLowerCase();
+    const cands = document.querySelectorAll(
+      "a,button,[role=button],input[type=submit],input[type=button]",
+    );
+    for (const c of cands) {
+      if ((c.innerText || c.value || "").toLowerCase().includes(t)) {
+        el = c;
+        break;
+      }
+    }
+  }
+  if (!el) return { ok: false, label: "", error: "element not found" };
+  const label = (
+    el.innerText ||
+    el.value ||
+    el.getAttribute("aria-label") ||
+    el.getAttribute("type") ||
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return { ok: true, label, type: el.type || "", tag: el.tagName.toLowerCase() };
+}
+
+/// Viewport crop for the main content region (CSS pixels + viewport size).
+function pageArticleCrop() {
+  const main =
+    document.querySelector("main, article, [role=main]") || document.body;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const r = main.getBoundingClientRect();
+  const x = Math.max(0, Math.min(r.left, vw));
+  const y = Math.max(0, Math.min(r.top, vh));
+  const right = Math.max(x, Math.min(r.right, vw));
+  const bottom = Math.max(y, Math.min(r.bottom, vh));
+  return {
+    x,
+    y,
+    w: Math.max(0, right - x),
+    h: Math.max(0, bottom - y),
+    vw,
+    vh,
+  };
+}
+
 // ---- Orchestration ----
 
 async function loadSettings() {
@@ -135,6 +275,12 @@ async function execTool(tab, action, args) {
       return await runInPage(tab.id, pageFill, [args]);
     case "scroll":
       return await runInPage(tab.id, pageScroll, [args]);
+    case "wait_for_element":
+      return await runInPage(tab.id, pageWaitForElement, [args]);
+    case "scroll_to_element":
+      return await runInPage(tab.id, pageScrollToElement, [args]);
+    case "extract_data":
+      return await runInPage(tab.id, pageExtractData, [args]);
     case "navigate":
       if (!/^https?:\/\//i.test(args.url || ""))
         return { ok: false, error: "only http(s) urls allowed" };
@@ -143,6 +289,59 @@ async function execTool(tab, action, args) {
     default:
       return { ok: false, error: `unknown tool ${action}` };
   }
+}
+
+const SENSITIVE_CLICK_RE =
+  /\b(submit|delete|remove|logout|log\s*out|sign\s*out|pay|purchase|buy|confirm|unsubscribe|transfer)\b/i;
+
+function actionNeedsConfirm(action, args, clickMeta) {
+  if (action === "navigate") return true;
+  if (action === "click") {
+    const bits = [
+      args.text,
+      args.selector,
+      clickMeta?.label,
+      clickMeta?.type,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (SENSITIVE_CLICK_RE.test(bits)) return true;
+    if (clickMeta?.type === "submit") return true;
+  }
+  return false;
+}
+
+function waitForConfirm(port, id, timeoutMs = 90000) {
+  const ctrl = getAgentControl(port);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ctrl.confirmResolvers.delete(id);
+      resolve(false);
+    }, timeoutMs);
+    ctrl.confirmResolvers.set(id, (ok) => {
+      clearTimeout(timer);
+      ctrl.confirmResolvers.delete(id);
+      resolve(!!ok);
+    });
+  });
+}
+
+async function waitIfPaused(port) {
+  const ctrl = getAgentControl(port);
+  while (ctrl.paused && !ctrl.cancelled) {
+    await sleep(200);
+  }
+}
+
+async function agentModelReply(settings, convo, port) {
+  if (supportsStreaming(settings.provider)) {
+    port.postMessage({ event: "stream_start" });
+    const raw = await chatStream(settings, convo, (chunk) => {
+      port.postMessage({ event: "token", text: chunk });
+    });
+    return raw;
+  }
+  return chat(settings, convo);
 }
 
 function parseAction(raw) {
@@ -163,13 +362,72 @@ function parseAction(raw) {
   return null;
 }
 
+const VISION_MAX_EDGE = 1280;
+const VISION_JPEG_QUALITY = 0.72;
+
+/// Crops to the article region when useful, then downscales and re-encodes JPEG.
+async function polishScreenshot(dataUrl, crop) {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    let sx = 0;
+    let sy = 0;
+    let sw = bitmap.width;
+    let sh = bitmap.height;
+    if (
+      crop &&
+      crop.vw > 0 &&
+      crop.vh > 0 &&
+      crop.w > 80 &&
+      crop.h > 80 &&
+      crop.w * crop.h < crop.vw * crop.vh * 0.92
+    ) {
+      const scaleX = bitmap.width / crop.vw;
+      const scaleY = bitmap.height / crop.vh;
+      sx = Math.max(0, Math.floor(crop.x * scaleX));
+      sy = Math.max(0, Math.floor(crop.y * scaleY));
+      sw = Math.min(bitmap.width - sx, Math.floor(crop.w * scaleX));
+      sh = Math.min(bitmap.height - sy, Math.floor(crop.h * scaleY));
+    }
+    const longest = Math.max(sw, sh);
+    const scale = longest > VISION_MAX_EDGE ? VISION_MAX_EDGE / longest : 1;
+    const dw = Math.max(1, Math.round(sw * scale));
+    const dh = Math.max(1, Math.round(sh * scale));
+    const canvas = new OffscreenCanvas(dw, dh);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, dw, dh);
+    bitmap.close();
+    const out = await canvas.convertToBlob({
+      type: "image/jpeg",
+      quality: VISION_JPEG_QUALITY,
+    });
+    const buf = await out.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return `data:image/jpeg;base64,${btoa(binary)}`;
+  } catch (_) {
+    return dataUrl;
+  }
+}
+
 async function captureTabScreenshot(tab) {
   if (!tab?.windowId) return null;
   try {
-    return await chrome.tabs.captureVisibleTab(tab.windowId, {
+    const raw = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: "jpeg",
-      quality: 78,
+      quality: 85,
     });
+    let crop = null;
+    try {
+      crop = await runInPage(tab.id, pageArticleCrop, []);
+    } catch (_) {
+      // restricted page — full viewport only
+    }
+    return await polishScreenshot(raw, crop);
   } catch (_) {
     return null;
   }
@@ -193,17 +451,16 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
     embedModel: settings.rag?.embedModel || "nomic-embed-text",
   };
   const ctx = await buildPageContext(userText, page, ragOptions);
-  const system =
-    `You are Involvex AI, a helpful assistant embedded in a web browser. ` +
-    `You can see the content of the user's current page below. Use it when ` +
-    `relevant, cite specifics, and answer in concise markdown.\n\n${ctx}`;
+  const askBase =
+    (settings.systemPrompts && settings.systemPrompts.ask) || DEFAULT_ASK_SYSTEM;
+  const system = `${askBase}\n\n${ctx}`;
   let userMsg = { role: "user", content: userText };
   const useVision = opts.vision ?? settings.vision?.enabled ?? false;
   if (useVision && tab) {
     const shot = await captureTabScreenshot(tab);
     if (shot) {
       userMsg = buildUserMessage(
-        `${userText}\n\n(Attached: screenshot of the visible page viewport.)`,
+        `${userText}\n\n(Attached: screenshot of the page content region.)`,
         shot,
       );
     }
@@ -215,6 +472,9 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
 }
 
 async function runAgent(port, userText, history, tabId) {
+  const ctrl = getAgentControl(port);
+  ctrl.cancelled = false;
+  ctrl.paused = false;
   const settings = await loadSettings();
   const tab = await resolveTargetTab(tabId);
   if (!tab) throw new Error("No active tab to act on.");
@@ -231,20 +491,45 @@ async function runAgent(port, userText, history, tabId) {
     `- fill {"index":n|"selector":"css","value":"text"} -> fill an input.\n` +
     `- navigate {"url":"https://..."} -> load a URL in the current tab.\n` +
     `- scroll {"direction":"down"|"up"} -> scroll the page.\n` +
+    `- wait_for_element {"selector":"css","timeoutMs":5000} -> wait until an element appears.\n` +
+    `- scroll_to_element {"index":n}|{"selector":"css"}|{"text":"..."} -> scroll an element into view.\n` +
+    `- extract_data {"maxRows":20} -> extract tables and lists as structured text.\n` +
     `- finish {"answer":"final markdown answer"} -> end the task.\n` +
     `Rules: exactly one tool per reply. read_page before acting if you have ` +
     `not seen the page. Prefer element index from read_page. When done or no ` +
     `action is needed, use finish.`;
-  const system = `You are Involvex AI Agent, operating inside a web browser on behalf of the user. ${toolDoc}`;
+  const agentBase =
+    (settings.systemPrompts && settings.systemPrompts.agent) ||
+    DEFAULT_AGENT_SYSTEM;
+  const system = `${agentBase} ${toolDoc}`;
   const convo = [
     { role: "system", content: system },
     ...history,
     { role: "user", content: userText },
   ];
 
+  port.postMessage({ event: "agent_start" });
+
   for (let step = 0; step < MAX_AGENT_STEPS; step++) {
-    port.postMessage({ event: "status", text: `Planning (step ${step + 1})…` });
-    const raw = await chat(settings, convo);
+    await waitIfPaused(port);
+    if (ctrl.cancelled) {
+      port.postMessage({
+        event: "assistant",
+        text: "Agent cancelled.",
+      });
+      port.postMessage({ event: "done" });
+      return;
+    }
+    port.postMessage({
+      event: "status",
+      text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
+    });
+    const raw = await agentModelReply(settings, convo, port);
+    if (ctrl.cancelled) {
+      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({ event: "done" });
+      return;
+    }
     const parsed = parseAction(raw);
     if (!parsed) {
       port.postMessage({ event: "assistant", text: raw });
@@ -260,18 +545,70 @@ async function runAgent(port, userText, history, tabId) {
       port.postMessage({ event: "done" });
       return;
     }
+
+    const args = parsed.args || {};
+    let clickMeta = null;
+    if (parsed.action === "click") {
+      try {
+        clickMeta = await runInPage(tab.id, pageClickLabel, [args]);
+      } catch (_) {
+        clickMeta = null;
+      }
+    }
+
     port.postMessage({
       event: "step",
+      step: step + 1,
+      total: MAX_AGENT_STEPS,
       action: parsed.action,
-      args: parsed.args || {},
+      args,
       thought: parsed.thought || "",
     });
+
+    if (actionNeedsConfirm(parsed.action, args, clickMeta)) {
+      const confirmId = `c-${Date.now()}-${step}`;
+      const detail =
+        parsed.action === "navigate"
+          ? `Navigate to ${args.url || "(missing url)"}?`
+          : `Click "${clickMeta?.label || args.text || args.selector || "element"}"?`;
+      port.postMessage({
+        event: "confirm",
+        id: confirmId,
+        action: parsed.action,
+        detail,
+      });
+      const ok = await waitForConfirm(port, confirmId);
+      if (!ok) {
+        convo.push({
+          role: "user",
+          content: `TOOL RESULT (${parsed.action}):\n${JSON.stringify({
+            ok: false,
+            error: "user declined confirmation",
+          })}`,
+        });
+        continue;
+      }
+    }
+
+    await waitIfPaused(port);
+    if (ctrl.cancelled) {
+      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({ event: "done" });
+      return;
+    }
+
     let result;
     try {
-      result = await execTool(tab, parsed.action, parsed.args || {});
+      result = await execTool(tab, parsed.action, args);
     } catch (e) {
       result = { ok: false, error: String((e && e.message) || e) };
     }
+    port.postMessage({
+      event: "step_result",
+      step: step + 1,
+      action: parsed.action,
+      ok: result?.ok !== false,
+    });
     convo.push({
       role: "user",
       content: `TOOL RESULT (${parsed.action}):\n${JSON.stringify(result).slice(0, 8000)}`,
@@ -305,6 +642,32 @@ async function openPanel(pageTabId) {
 
 chrome.action.onClicked.addListener(async (tab) => {
   await openPanel(tab?.id);
+});
+
+async function notifyPanel(command) {
+  chrome.runtime.sendMessage({ event: "command", command }).catch(() => {});
+}
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "new_chat") {
+    await openPanel();
+    await notifyPanel("new_chat");
+    return;
+  }
+  if (command === "toggle_agent") {
+    const { agentMode } = await chrome.storage.local.get("agentMode");
+    await chrome.storage.local.set({ agentMode: !agentMode });
+    await openPanel();
+    await notifyPanel("toggle_agent");
+    return;
+  }
+  if (command === "toggle_rag") {
+    const { ragMode } = await chrome.storage.local.get("ragMode");
+    const next = ragMode === false;
+    await chrome.storage.local.set({ ragMode: next });
+    await openPanel();
+    await notifyPanel("toggle_rag");
+  }
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -460,8 +823,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "agent") return;
+  getAgentControl(port);
   port.onMessage.addListener(async (msg) => {
     try {
+      if (msg.type === "cancel") {
+        const ctrl = getAgentControl(port);
+        ctrl.cancelled = true;
+        ctrl.paused = false;
+        return;
+      }
+      if (msg.type === "pause") {
+        getAgentControl(port).paused = true;
+        port.postMessage({ event: "status", text: "Paused…" });
+        return;
+      }
+      if (msg.type === "resume") {
+        getAgentControl(port).paused = false;
+        port.postMessage({ event: "status", text: "Resuming…" });
+        return;
+      }
+      if (msg.type === "confirm_response") {
+        const ctrl = getAgentControl(port);
+        const resolve = ctrl.confirmResolvers.get(msg.id);
+        if (resolve) resolve(!!msg.ok);
+        return;
+      }
       if (msg.type === "chat") {
         if (msg.mode !== "agent") {
           port.postMessage({
@@ -474,6 +860,7 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     } catch (e) {
       port.postMessage({ event: "error", text: String((e && e.message) || e) });
+      port.postMessage({ event: "done" });
     }
   });
 });
