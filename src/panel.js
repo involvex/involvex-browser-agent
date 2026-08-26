@@ -809,6 +809,13 @@ ragToggle.addEventListener("change", () => {
   chrome.storage.local.set({ ragMode: ragToggle.checked });
 });
 
+contextSection.addEventListener("change", () => {
+  const section = contextSection.value;
+  chrome.storage.local.set({ contextSection });
+  // Update char count display
+  updateContextCharCount(section);
+});
+
 visionToggle.addEventListener("change", () => {
   chrome.storage.local.set({ visionMode: visionToggle.checked });
 });
@@ -1066,5 +1073,33 @@ window
     const { settings } = await chrome.storage.local.get("settings");
     if ((settings?.theme || "system") === "system") applyTheme("system");
   });
+
+function updateContextCharCount(section) {
+  const charCountEl = document.getElementById("contextCharCount");
+  if (!charCountEl) return;
+  let estimatedChars = 0;
+  if (section === "full") {
+    estimatedChars = 12000;
+  } else if (section === "summary") {
+    estimatedChars = 3000;
+  } else if (section === "selection") {
+    estimatedChars = 500;
+  } else if (section === "header") {
+    estimatedChars = 2000;
+  } else if (section === "rag") {
+    // RAG uses excerpts, estimate around 40% of full page
+    estimatedChars = 4800;
+  }
+  const maxChars = 12000;
+  charCountEl.textContent = `${estimatedChars} / ${maxChars} chars`;
+}
+
+function loadContextSection() {
+  const saved = localStorage.getItem("involvex-context-section");
+  const validSections = ["full", "rag", "selection", "header", "summary"];
+  const savedSection = saved && validSections.includes(saved) ? saved : "full";
+  contextSectionEl.value = savedSection;
+  updateContextCharCount(savedSection);
+}
 
 init();

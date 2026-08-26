@@ -49,6 +49,20 @@
 
     <div id="providerLine" class="provider-line">Loading settings…</div>
 
+    <div class="context-control">
+      <span class="context-label">Context</span>
+      <select id="contextSection">
+        <option value="full">Full page (up to 12,000 chars)</option>
+        <option value="rag">RAG excerpts (relevant sections)</option>
+        <option value="selection">Selection only</option>
+        <option value="header">Header & top</option>
+        <option value="summary">Summary (first 3,000 chars)</option>
+      </select>
+      <span id="contextCharCount" class="context-char-count"
+        >0 / 12,000 chars</span
+      >
+    </div>
+
     <div class="mode-toggles">
       <label
         class="toggle"
