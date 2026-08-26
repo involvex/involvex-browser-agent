@@ -50,6 +50,8 @@ const history = [];
 let busy = false;
 let pinnedIds = new Set();
 let statusEl = null;
+let pageContentCache = null; // cached {text, url, timestamp}
+const PAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes TTL
 let streamEl = null;
 let streamText = "";
 let targetTabId = null;
@@ -387,6 +389,8 @@ function handlePortMessage(m, port) {
 async function sendAsk(text) {
   try {
     setStatus("Loading page context…");
+    // Check cache first — if we have recent page text for this tab, use it
+    const cachedText = getCachedPageText(targetTabId);
     const prep = await chrome.runtime.sendMessage({
       type: "prepareAsk",
       text,
@@ -406,7 +410,12 @@ async function sendAsk(text) {
       model: modelSelect.value,
     };
 
-    setStatus("Thinking…");
+    // If we had cached page text, augment the messages with it
+    let pageText = cachedText;
+    if (!pageText) {
+      pageText = prep.pageText || "";
+    }
+    // ... rest of function
     let answer;
     if (supportsStreaming(s.provider)) {
       clearStatus();
@@ -430,6 +439,11 @@ async function sendAsk(text) {
     clearStatus();
     addMessage("assistant", `Error: ${String((e && e.message) || e)}`, "error");
   } finally {
+    // Cache page text from response for future asks on this tab
+    // prep.pageText is set by the background worker when available
+    if (prep && prep.pageText) {
+      setCachedPageText(targetTabId, prep.pageText);
+    }
     setBusy(false);
   }
 }
@@ -1103,3 +1117,30 @@ function loadContextSection() {
 }
 
 init();
+
+function getCachedPageText(tabId) {
+  try {
+    const cached = localStorage.getItem(`involvex-page-cache-${tabId}`);
+    if (!cached) return null;
+    const { text, timestamp } = JSON.parse(cached);
+    const now = Date.now();
+    if (now - timestamp > PAGE_CACHE_TTL) {
+      localStorage.removeItem(`involvex-page-cache-${tabId}`);
+      return null;
+    }
+    return text;
+  } catch (_) {
+    return null;
+  }
+}
+
+function setCachedPageText(tabId, text) {
+  try {
+    localStorage.setItem(
+      `involvex-page-cache-${tabId}`,
+      JSON.stringify({ text, timestamp: Date.now() }),
+    );
+  } catch (_) {
+    // localStorage full or blocked — silently persist what we can
+  }
+}

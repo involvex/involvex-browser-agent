@@ -110,7 +110,7 @@ Status tags:
 | # | Feature | Status | Notes |
 | --- | --- | --- | --- |
 | 34 | Lazy loading / code splitting | ⏸ later | No bundler today |
-| 35 | Caching system | ⏸ later | |
+| 35 | Caching system | ✅ done | In-memory + localStorage cache for page content; reduces redundant extractions on repeated asks |
 | 36 | Memory management / virtualization | ⏸ later | |
 
 ---
