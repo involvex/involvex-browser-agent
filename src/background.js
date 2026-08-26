@@ -1,4 +1,9 @@
-import { chat, chatStream, supportsStreaming, buildUserMessage } from "./providers.js";
+import {
+  chat,
+  chatStream,
+  supportsStreaming,
+  buildUserMessage,
+} from "./providers.js";
 import { pushBackup, fetchBackup, restoreBackup } from "./backup.js";
 import { loadEnv, envGistToken, envGistId } from "./env.js";
 import { buildPageContext } from "./rag.js";
@@ -111,7 +116,8 @@ function pageScroll(args) {
 
 function pageWaitForElement(args) {
   const selector = args.selector;
-  if (!selector) return Promise.resolve({ ok: false, error: "selector required" });
+  if (!selector)
+    return Promise.resolve({ ok: false, error: "selector required" });
   const timeout = Math.min(Number(args.timeoutMs) || 5000, 15000);
   const start = Date.now();
   return new Promise((resolve) => {
@@ -157,9 +163,15 @@ function pageExtractData(args) {
   const clip = (s) => (s || "").replace(/\s+/g, " ").trim();
   const maxRows = Math.min(Number(args.maxRows) || 20, 40);
   const tables = [];
-  for (const table of Array.from(document.querySelectorAll("table")).slice(0, 5)) {
+  for (const table of Array.from(document.querySelectorAll("table")).slice(
+    0,
+    5,
+  )) {
     const rows = [];
-    for (const tr of Array.from(table.querySelectorAll("tr")).slice(0, maxRows)) {
+    for (const tr of Array.from(table.querySelectorAll("tr")).slice(
+      0,
+      maxRows,
+    )) {
       const cells = Array.from(tr.querySelectorAll("th,td")).map((c) =>
         clip(c.innerText).slice(0, 120),
       );
@@ -168,9 +180,10 @@ function pageExtractData(args) {
     if (rows.length) tables.push({ rows });
   }
   const lists = [];
-  for (const list of Array.from(
-    document.querySelectorAll("ul, ol"),
-  ).slice(0, 8)) {
+  for (const list of Array.from(document.querySelectorAll("ul, ol")).slice(
+    0,
+    8,
+  )) {
     const items = Array.from(list.querySelectorAll(":scope > li"))
       .slice(0, maxRows)
       .map((li) => clip(li.innerText).slice(0, 200))
@@ -208,7 +221,12 @@ function pageClickLabel(args) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
-  return { ok: true, label, type: el.type || "", tag: el.tagName.toLowerCase() };
+  return {
+    ok: true,
+    label,
+    type: el.type || "",
+    tag: el.tagName.toLowerCase(),
+  };
 }
 
 /// Viewport crop for the main content region (CSS pixels + viewport size).
@@ -297,12 +315,7 @@ const SENSITIVE_CLICK_RE =
 function actionNeedsConfirm(action, args, clickMeta) {
   if (action === "navigate") return true;
   if (action === "click") {
-    const bits = [
-      args.text,
-      args.selector,
-      clickMeta?.label,
-      clickMeta?.type,
-    ]
+    const bits = [args.text, args.selector, clickMeta?.label, clickMeta?.type]
       .filter(Boolean)
       .join(" ");
     if (SENSITIVE_CLICK_RE.test(bits)) return true;
@@ -344,18 +357,39 @@ async function agentModelReply(settings, convo, port) {
   return chat(settings, convo);
 }
 
-function parseAction(raw) {
-  let jsonStr = null;
+function extractJsonFromFenced(raw) {
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) jsonStr = fence[1];
-  else {
-    const brace = raw.match(/\{[\s\S]*\}/);
-    if (brace) jsonStr = brace[0];
+  if (fence) return fence[1];
+  return null;
+}
+
+function extractJsonWithActionKey(raw) {
+  const actionMatch = raw.match(/"action"\s*:/);
+  if (!actionMatch) return null;
+
+  const braceMatch = raw.match(/\{[^\}]*\}/);
+  if (!braceMatch) return null;
+
+  const candidate = braceMatch[0];
+  try {
+    const obj = JSON.parse(candidate);
+    if (obj && obj.action) return candidate;
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+function parseAction(raw) {
+  let jsonStr = extractJsonFromFenced(raw);
+  if (!jsonStr) {
+    jsonStr = extractJsonWithActionKey(raw);
   }
   if (!jsonStr) return null;
   try {
     const obj = JSON.parse(jsonStr.trim());
     if (obj && typeof obj.action === "string") return obj;
+    if (obj && obj.action != null) return obj;
   } catch (_) {
     // not a tool call; treat as prose
   }
@@ -452,7 +486,8 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
   };
   const ctx = await buildPageContext(userText, page, ragOptions);
   const askBase =
-    (settings.systemPrompts && settings.systemPrompts.ask) || DEFAULT_ASK_SYSTEM;
+    (settings.systemPrompts && settings.systemPrompts.ask) ||
+    DEFAULT_ASK_SYSTEM;
   const system = `${askBase}\n\n${ctx}`;
   let userMsg = { role: "user", content: userText };
   const useVision = opts.vision ?? settings.vision?.enabled ?? false;
@@ -532,7 +567,11 @@ async function runAgent(port, userText, history, tabId) {
     }
     const parsed = parseAction(raw);
     if (!parsed) {
-      port.postMessage({ event: "assistant", text: raw });
+      const truncated = raw.slice(0, 200).replace(/\n/g, " ");
+      port.postMessage({
+        event: "assistant",
+        text: `Could not parse agent JSON output. Raw snip: "${truncated}"`,
+      });
       port.postMessage({ event: "done" });
       return;
     }
@@ -632,7 +671,9 @@ async function openPanel(pageTabId) {
   if (existing.length) {
     await chrome.tabs.update(existing[0].id, { active: true });
     if (existing[0].windowId != null) {
-      chrome.windows.update(existing[0].windowId, { focused: true }).catch(() => {});
+      chrome.windows
+        .update(existing[0].windowId, { focused: true })
+        .catch(() => {});
     }
     chrome.runtime.sendMessage({ event: "panel-refocus" }).catch(() => {});
     return;
@@ -794,10 +835,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const res = await pushBackup(token, gistId);
         const next = {
           ...(settings || {}),
-          backup: { ...backupCfg, gistId: res.gistId, lastBackup: res.updatedAt },
+          backup: {
+            ...backupCfg,
+            gistId: res.gistId,
+            lastBackup: res.updatedAt,
+          },
         };
         await chrome.storage.local.set({ settings: next });
-        sendResponse({ ok: true, gistId: res.gistId, updatedAt: res.updatedAt });
+        sendResponse({
+          ok: true,
+          gistId: res.gistId,
+          updatedAt: res.updatedAt,
+        });
       } else if (msg.action === "restore") {
         if (!token)
           throw new Error(

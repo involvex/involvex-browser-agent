@@ -25,6 +25,8 @@ Status tags:
 | 1 | Streaming responses in Agent mode | ✅ done | Shipped in v0.8.0 |
 | 2 | Per-site agent allow/deny list | ✅ done | Shipped in v0.8.0 |
 | 3 | Multi-turn conversation memory | ⏸ later | |
+| 37 | JSON output parsing improvement in agent mode | ⏸ later | Fix parseAction to handle fenced/non-fenced JSON reliably |
+| 38 | Agent "continue" after step limit | ⏸ later | Allow continuing agent loops beyond 8 steps when user requests |
 | 4 | Custom system prompts | ✅ done | Shipped in v0.7.0 |
 | 5 | Keyboard shortcuts | ✅ done | Shipped in v0.7.0 |
 
@@ -46,6 +48,8 @@ Status tags:
 | 12 | Agent workflow templates | ⏸ later | |
 | 13 | Agent step visualization | ✅ done (subset) | Step bar + pause/cancel in v0.8.0 |
 | 14 | Agent safety controls | ✅ done (subset) | Confirmations in v0.8.0 |
+| 15 | Parse action JSON robustness | ⏸ later | Fix parseAction JSON extraction reliability |
+| 16 | Agent continue after step limit | ⏸ later | Extend agent loops beyond 8-step cap |
 
 ## Analytics & insights (original)
 
@@ -155,4 +159,4 @@ Kept for context; **current schedule is ROADMAP v0.7 → v0.8 → Later**.
 
 ---
 
-*Archive last updated: July 2026. Edit ROADMAP.md for active planning.*
+*Archive last updated: August 2026. ROADMAP.md updated with v0.9 quick wins. Edit ROADMAP.md for active planning.*
