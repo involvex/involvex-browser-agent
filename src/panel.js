@@ -52,6 +52,7 @@ let pinnedIds = new Set();
 let statusEl = null;
 let pageContentCache = null; // cached {text, url, timestamp}
 const PAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes TTL
+const MAX_HISTORY_MESSAGES = 50; // keep last N messages to manage memory
 let streamEl = null;
 let streamText = "";
 let targetTabId = null;
@@ -324,6 +325,10 @@ function finishAssistant(text) {
   }
   const id = makeMessageId("msg");
   history.push({ role: "assistant", content: text, id });
+  // Trim history if exceeding max messages (memory management)
+  if (history.length > MAX_HISTORY_MESSAGES) {
+    history.splice(0, history.length - MAX_HISTORY_MESSAGES);
+  }
   attachRegenerate(el);
   attachPinButton(el);
   persistSession();

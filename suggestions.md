@@ -111,7 +111,7 @@ Status tags:
 | --- | --- | --- | --- |
 | 34 | Lazy loading / code splitting | ⏸ later | No bundler today |
 | 35 | Caching system | ✅ done | In-memory + localStorage cache for page content; reduces redundant extractions on repeated asks |
-| 36 | Memory management / virtualization | ⏸ later | |
+| 36 | Memory management / virtualization | ✅ done | History message limit (last 50 messages) auto-trims oldest; prevents unbounded growth |
 
 ---
 
