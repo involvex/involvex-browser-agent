@@ -53,6 +53,8 @@ let statusEl = null;
 let pageContentCache = null; // cached {text, url, timestamp}
 const PAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes TTL
 const MAX_HISTORY_MESSAGES = 50; // keep last N messages to manage memory
+const VISIBLE_MESSAGE_BUFFER = 5; // render this many messages above/below viewport
+let messageHeights = new Map(); // cache message element heights
 let streamEl = null;
 let streamText = "";
 let targetTabId = null;
@@ -131,10 +133,89 @@ function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function getMessageHeight(el) {
+  if (!el) return 0;
+  const cached = messageHeights.get(el.id || el.dataset.id);
+  if (cached !== undefined) return cached;
+  const height = el.offsetHeight || 36; // fallback default height
+  messageHeights.set(el.id || el.dataset.id, height);
+  return height;
+}
+
+function renderVisibleMessages() {
+  if (!messagesEl) return;
+  const viewportHeight = messagesEl.clientHeight;
+  const scrollTop = messagesEl.scrollTop;
+  const scrollBottom = scrollTop + viewportHeight;
+
+  // Calculate total height of all message elements
+  let totalHeight = 0;
+  const visibleEls = [];
+  const hiddenEls = [];
+
+  // Get all message elements
+  const allMsgs = messagesEl.querySelectorAll(".msg:not(.hidden)");
+
+  // First pass: calculate heights and determine which are visible
+  allMsgs.forEach((el, idx) => {
+    const height = getMessageHeight(el);
+    totalHeight += height;
+
+    // Check if this message is in the visible range (with buffer)
+    const messageTop = totalHeight - height;
+    const messageBottom = totalHeight;
+
+    if (
+      messageBottom > scrollTop &&
+      messageTop < scrollBottom + VISIBLE_MESSAGE_BUFFER * 36
+    ) {
+      // Visible (with buffer)
+      el.classList.remove("hidden");
+      visibleEls.push(el);
+    } else {
+      // Hidden
+      el.classList.add("hidden");
+      hiddenEls.push(el);
+    }
+  });
+
+  // Add "Load older" indicator if there are more messages beyond what's visible
+  const allMessages = history.length;
+  const renderedCount = visibleEls.length;
+  const loadMoreEl = messagesEl.querySelector(".load-older");
+
+  if (renderedCount < allMessages && !loadMoreEl) {
+    // There are more messages than visible - add load more indicator
+    const lastVisible = visibleEls[visibleEls.length - 1];
+    if (lastVisible) {
+      const loadDiv = document.createElement("div");
+      loadDiv.className = "load-older";
+      loadDiv.textContent = `Show older messages (${allMessages - renderedCount} more)`;
+      loadDiv.addEventListener("click", () => {
+        // Show all messages by removing hidden class
+        messagesEl
+          .querySelectorAll(".msg.hidden")
+          .forEach((el) => el.classList.remove("hidden"));
+        scrollToBottom();
+        if (loadMoreEl) loadMoreEl.remove();
+      });
+      messagesEl.insertBefore(loadDiv, lastVisible.nextSibling);
+    }
+  } else if (allMessages <= renderedCount && loadMoreEl) {
+    // No more older messages to load - remove indicator
+    if (loadMoreEl) loadMoreEl.remove();
+  }
+}
+
 function addMessage(role, text, kind) {
   if (emptyEl && emptyEl.parentNode) emptyEl.remove();
   const el = renderMessageWithRegenerate(role, text, kind);
+  // Assign id for height caching
+  el.dataset.id = `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  messageHeights.set(el.dataset.id, 0); // will be calculated on first render
   messagesEl.appendChild(el);
+  // Immediately render visible messages
+  renderVisibleMessages();
   scrollToBottom();
   return el;
 }
@@ -1037,6 +1118,9 @@ async function init() {
     send(pendingPrompt);
   }
   inputEl.focus();
+
+  // Add scroll event listener for message virtualization
+  messagesEl.addEventListener("scroll", renderVisibleMessages);
 }
 
 chrome.runtime.onMessage.addListener(async (msg) => {

@@ -771,3 +771,17 @@ body {
     padding-right: 16px;
   }
 }
+
+.load-older {
+  text-align: center;
+  padding: 20px;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.load-older:hover {
+  color: var(--accent);
+  cursor: pointer;
+}
