@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <title>Involvex AI</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
@@ -13,21 +16,30 @@
         <span class="brand-name">Involvex AI</span>
       </div>
       <div class="bar-actions">
-        <label class="toggle agent-toggle" title="Agent mode: let the AI click, fill and navigate">
+        <label
+          class="toggle agent-toggle"
+          title="Agent mode: let the AI click, fill and navigate"
+        >
           <input type="checkbox" id="agentToggle" />
           <span>Agent</span>
         </label>
         <button id="historyBtn" class="text-btn" type="button">Chats</button>
         <button id="exportBtn" class="text-btn" type="button">Export</button>
         <button id="newBtn" class="text-btn" type="button">New</button>
-        <button id="settingsBtn" class="text-btn" type="button">Settings</button>
+        <button id="settingsBtn" class="text-btn" type="button">
+          Settings
+        </button>
       </div>
     </header>
 
     <div class="model-bar">
       <label class="model-field">
         <span class="model-label">Provider</span>
-        <select id="providerSelect" class="provider-select" title="Provider"></select>
+        <select
+          id="providerSelect"
+          class="provider-select"
+          title="Provider"
+        ></select>
       </label>
       <label class="model-field">
         <span class="model-label">Model</span>
@@ -38,11 +50,18 @@
     <div id="providerLine" class="provider-line">Loading settings…</div>
 
     <div class="mode-toggles">
-      <label class="toggle" title="Retrieve only relevant page excerpts (good for long pages)">
+      <label
+        class="toggle"
+        title="Retrieve only relevant page excerpts (good for long pages)"
+      >
         <input type="checkbox" id="ragToggle" />
         <span>RAG</span>
       </label>
-      <label class="toggle" id="visionWrap" title="Attach a screenshot for vision models (FastVLM, Gemini, Ollama llava)">
+      <label
+        class="toggle"
+        id="visionWrap"
+        title="Attach a screenshot for vision models (FastVLM, Gemini, Ollama llava)"
+      >
         <input type="checkbox" id="visionToggle" />
         <span>Vision</span>
       </label>
@@ -51,7 +70,9 @@
     <div id="agentBar" class="agent-bar" hidden>
       <span id="agentBarLabel" class="agent-bar-label">Agent running</span>
       <button id="agentPause" class="text-btn" type="button">Pause</button>
-      <button id="agentCancel" class="text-btn danger-link" type="button">Cancel</button>
+      <button id="agentCancel" class="text-btn danger-link" type="button">
+        Cancel
+      </button>
     </div>
 
     <div id="confirmBanner" class="confirm-banner" hidden>
@@ -71,9 +92,27 @@
             — in Agent mode — click, fill and navigate for you.
           </p>
           <div class="quick">
-            <button class="chip" type="button" data-prompt="Summarize this page in a few bullet points.">Summarize page</button>
-            <button class="chip" type="button" data-prompt="What is this page about and what can I do here?">What is this?</button>
-            <button class="chip" type="button" data-prompt="List the key links and actions on this page.">Key links</button>
+            <button
+              class="chip"
+              type="button"
+              data-prompt="Summarize this page in a few bullet points."
+            >
+              Summarize page
+            </button>
+            <button
+              class="chip"
+              type="button"
+              data-prompt="What is this page about and what can I do here?"
+            >
+              What is this?
+            </button>
+            <button
+              class="chip"
+              type="button"
+              data-prompt="List the key links and actions on this page."
+            >
+              Key links
+            </button>
           </div>
         </div>
       </main>
@@ -95,15 +134,26 @@
       <div class="history-head">
         <span class="history-title-bar">Chat history</span>
         <button id="historyClose" class="text-btn" type="button">Close</button>
-        <input id="historySearch" type="search" placeholder="Search past chats…" />
+        <input
+          id="historySearch"
+          type="search"
+          placeholder="Search past chats…"
+        />
       </div>
       <ul id="historyList" class="history-list"></ul>
       <div class="history-foot">
-        <button id="historyClear" class="danger-link" type="button">Clear all history</button>
+        <button id="historyClear" class="danger-link" type="button">
+          Clear all history
+        </button>
       </div>
     </div>
 
     <div id="toast" class="toast" hidden></div>
+
+    <div id="pinnedBar" class="pinned-bar" hidden>
+      <span class="pinned-bar-label">Pinned messages</span>
+      <span class="pinned-bar-count" id="pinnedBarCount">0</span>
+    </div>
 
     <script src="panel.js" type="module"></script>
   </body>

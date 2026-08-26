@@ -48,6 +48,7 @@ const confirmDeny = document.getElementById("confirmDeny");
 
 const history = [];
 let busy = false;
+let pinnedIds = new Set();
 let statusEl = null;
 let streamEl = null;
 let streamText = "";
@@ -169,7 +170,77 @@ function renderMessageWithRegenerate(role, text, kind) {
     el.textContent = text;
   }
   attachRegenerate(el);
+  attachPinButton(el);
   return el;
+}
+
+function attachPinButton(msgEl) {
+  if (
+    !msgEl ||
+    msgEl.classList.contains("step") ||
+    msgEl.classList.contains("error")
+  )
+    return;
+  const alreadyPinned = pinnedIds.has(msgEl.dataset?.id || "");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "pin-btn";
+  btn.title = alreadyPinned ? "Unpin this message" : "Pin this message";
+  btn.innerHTML = alreadyPinned ? "★" : "📌";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (alreadyPinned) {
+      pinnedIds.delete(msgEl.dataset.id || "");
+      btn.innerHTML = "📌";
+      btn.title = "Pin this message";
+    } else {
+      pinnedIds.add(msgEl.dataset.id || Date.now());
+      btn.innerHTML = "★";
+      btn.title = "Unpin this message";
+    }
+    savePinnedIds();
+    renderPinnedSection();
+  });
+  // Insert pin button after the message content, before regenerate actions
+  const actions = msgEl.querySelector(".msg-actions");
+  if (actions) {
+    // Pin button goes before regenerate
+    const firstChild = actions.firstChild;
+    msgEl.querySelector(".msg-content")?.insertBefore(btn, firstChild);
+  } else {
+    // No regenerate — pin goes at end of message
+    el.lastChild?.after(btn);
+    // or append if no children
+    if (!msgEl.lastChild) msgEl.appendChild(btn);
+  }
+}
+
+function savePinnedIds() {
+  try {
+    localStorage.setItem(
+      "involvex-pinned-ids",
+      JSON.stringify(Array.from(pinnedIds)),
+    );
+  } catch (_) {
+    // localStorage full or blocked — silently persist what we can
+  }
+}
+
+function loadPinnedIds() {
+  try {
+    const stored = localStorage.getItem("involvex-pinned-ids");
+    if (stored) pinnedIds = new Set(JSON.parse(stored));
+  } catch (_) {
+    pinnedIds = new Set();
+  }
+}
+
+function renderPinnedSection() {
+  const count = pinnedIds.size;
+  const countEl = document.getElementById("pinnedBarCount");
+  if (countEl) countEl.textContent = count;
+  const pinnedBar = document.getElementById("pinnedBar");
+  if (pinnedBar) pinnedBar.hidden = !count;
 }
 
 function setStatus(text) {
@@ -233,6 +304,10 @@ function replyConfirm(ok) {
   hideConfirm();
 }
 
+function makeMessageId(role) {
+  return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function finishAssistant(text) {
   clearStatus();
   let el;
@@ -245,8 +320,10 @@ function finishAssistant(text) {
   } else {
     el = addMessage("assistant", text);
   }
-  history.push({ role: "assistant", content: text });
+  const id = makeMessageId("msg");
+  history.push({ role: "assistant", content: text, id });
   attachRegenerate(el);
+  attachPinButton(el);
   persistSession();
 }
 
@@ -923,6 +1000,7 @@ async function init() {
   visionToggle.checked = !!visionMode;
   await applyAgentSitePolicy();
   await refreshHeader();
+  loadPinnedIds();
   const staticQuick = emptyEl?.querySelector(".quick");
   if (staticQuick) {
     staticQuick.remove();
