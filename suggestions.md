@@ -149,6 +149,7 @@ Kept for context; **current schedule is ROADMAP v0.7 → v0.8 → Later**.
 4. Context window management → ✅ done
 5. Basic analytics → later
 6. Conversation virtualization → ✅ done
+7. Minimal automated tests → ✅ done
 
 ### Long-term (were 1+ months each)
 
