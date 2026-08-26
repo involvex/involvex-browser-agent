@@ -106,6 +106,9 @@ Shipped in **0.8.0**:
 - **Agent "continue" after step limit** — Allow continuing agent loops beyond 8 steps when user requests
 - **Agent debugging info** — Show truncated raw output when `parseAction` fails, for troubleshooting
 - **Panel keyboard shortcut enhancer** — Display available shortcuts in panel header
+- **Conversation virtualization** — Render only visible messages + buffer; "Load older" indicator for long histories; auto-trim at 50 messages
+- **Caching system** — Page content cache (localStorage, 10-min TTL); reduces redundant extractions on repeated asks
+- **Minimal automated tests** — Test suite for rag.js pure functions (chunkText, tokenize, TF-IDF scoring); no npm build step required
 
 ---
 
@@ -122,8 +125,6 @@ Do not schedule into near releases unless a concrete need appears.
 | Message pinning / bookmarks | Wait until regenerate proves message-action UX patterns |
 | Voice input/output | Platform permission + Android variability |
 | Multi-language UI (i18n) | Large string surface; prefer response-language setting first if needed |
-| **JSON parsing robustness** | Agent JSON output parsing reliability; core to agent mode stability |
-| **Agent "continue" after step limit** | Extend beyond 8-step cap for complex pages; user-requested feature |
 
 ### Integrations / infra
 
@@ -150,4 +151,4 @@ Do not schedule into near releases unless a concrete need appears.
 
 ---
 
-*Last prioritized: August 2026 (merged from prior Next/Ideas + suggestions.md; v0.9 quick wins added).*
+*Last prioritized: August 2026 (merged from prior Next/Ideas + suggestions.md; v0.9 quick wins + conversation virtualization + automated tests added).*
