@@ -35,8 +35,8 @@ Status tags:
 | # | Feature | Status | Notes |
 | --- | --- | --- | --- |
 | 6 | Response regeneration | ✅ done | Shipped in v0.7.0 |
-| 7 | Message pinning & bookmarks | ⏸ later | After regenerate UX lands |
-| 8 | Context window management | ⏸ later | |
+| 7 | Message pinning & bookmarks | ✅ done | Pins assistant messages with 📌/★; persists via localStorage; count shown in panel bar |
+| 8 | Context window management UI | ✅ done | Context window management UI implemented with token estimates + section picker in panel; useful after vision/RAG polish |
 | 9 | Multi-language UI (i18n) | ⏸ later | |
 | 10 | Voice input/output | ⏸ later | |
 
@@ -139,14 +139,14 @@ Kept for context; **current schedule is ROADMAP v0.7 → v0.8 → Later**.
 2. Response regeneration → ✅ v0.7
 3. Dark/light theme → ✅ v0.7
 4. Custom system prompts → ✅ v0.7
-5. Message pinning → later
+5. Message pinning → ✅ done
 
 ### Medium effort (were 1–2 weeks each)
 
 1. Streaming in agent mode → ✅ v0.8
 2. Per-site agent allow/deny → ✅ v0.8
 3. Advanced markdown editor → won't
-4. Context window management → later
+4. Context window management → ✅ done
 5. Basic analytics → later
 
 ### Long-term (were 1+ months each)
