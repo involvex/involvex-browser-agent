@@ -13,6 +13,35 @@ export const DEFAULT_PROMPTS = [
     label: "Key links",
     prompt: "List the key links and actions on this page.",
   },
+  {
+    label: "Explain selection",
+    prompt: "Explain this selected content clearly, as if to a beginner.",
+  },
+  {
+    label: "Translate this",
+    prompt:
+      "Translate the page content. If it is already English, translate to German; otherwise translate to English.",
+  },
+  {
+    label: "Rewrite this",
+    prompt:
+      "Rewrite the page content to be clearer and more concise, keeping the original meaning.",
+  },
+  {
+    label: "Find on page",
+    prompt:
+      "Find the most important or useful information on this page and present it concisely.",
+  },
+  {
+    label: "Check for errors",
+    prompt:
+      "Review the page content for errors, inconsistencies, or things that don't make sense, and list them.",
+  },
+  {
+    label: "Extract data",
+    prompt:
+      "Extract structured data from this page (tables, forms, lists) and present as organized markdown.",
+  },
 ];
 
 /// Default Ask-mode system prompt. Page context is appended by the worker.

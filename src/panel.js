@@ -1,4 +1,10 @@
-import { PROVIDERS, providerSupportsVision, chat, chatStream, supportsStreaming } from "./providers.js";
+import {
+  PROVIDERS,
+  providerSupportsVision,
+  chat,
+  chatStream,
+  supportsStreaming,
+} from "./providers.js";
 import {
   saveSession,
   searchSessions,
@@ -123,13 +129,7 @@ function scrollToBottom() {
 
 function addMessage(role, text, kind) {
   if (emptyEl && emptyEl.parentNode) emptyEl.remove();
-  const el = document.createElement("div");
-  el.className = `msg ${kind || role}`;
-  if (role === "assistant" && kind !== "step" && kind !== "error") {
-    el.innerHTML = renderMarkdown(text);
-  } else {
-    el.textContent = text;
-  }
+  const el = renderMessageWithRegenerate(role, text, kind);
   messagesEl.appendChild(el);
   scrollToBottom();
   return el;
@@ -158,6 +158,18 @@ function attachRegenerate(msgEl) {
   });
   actions.appendChild(btn);
   msgEl.appendChild(actions);
+}
+
+function renderMessageWithRegenerate(role, text, kind) {
+  const el = document.createElement("div");
+  el.className = `msg ${kind || role}`;
+  if (role === "assistant" && kind !== "step" && kind !== "error") {
+    el.innerHTML = renderMarkdown(text);
+  } else {
+    el.textContent = text;
+  }
+  attachRegenerate(el);
+  return el;
 }
 
 function setStatus(text) {
@@ -308,7 +320,8 @@ async function sendAsk(text) {
     });
     if (!prep?.ok) throw new Error(prep?.error || "Could not prepare request");
 
-    const settings = prep.settings || (await chrome.storage.local.get("settings")).settings;
+    const settings =
+      prep.settings || (await chrome.storage.local.get("settings")).settings;
     const s = { ...(settings || { provider: "gemini" }) };
     s.provider = providerSelect.value;
     s[s.provider] = {
@@ -589,7 +602,8 @@ function buildMarkdown(messages, meta = {}) {
   ];
   for (const m of messages) {
     const who = m.role === "user" ? "You" : "Assistant";
-    const content = typeof m.content === "string" ? m.content : String(m.content || "");
+    const content =
+      typeof m.content === "string" ? m.content : String(m.content || "");
     lines.push(`## ${who}`, "", content, "");
   }
   return lines.join("\n");
@@ -747,9 +761,7 @@ confirmOk?.addEventListener("click", () => replyConfirm(true));
 confirmDeny?.addEventListener("click", () => replyConfirm(false));
 
 function hostMatches(list, host) {
-  return (list || []).some(
-    (d) => host === d || host.endsWith(`.${d}`),
-  );
+  return (list || []).some((d) => host === d || host.endsWith(`.${d}`));
 }
 
 async function applyAgentSitePolicy() {
@@ -765,7 +777,8 @@ async function applyAgentSitePolicy() {
     const tab = targetTabId
       ? await chrome.tabs.get(targetTabId)
       : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
-    if (tab?.url) host = new URL(tab.url).hostname.replace(/^www\./, "").toLowerCase();
+    if (tab?.url)
+      host = new URL(tab.url).hostname.replace(/^www\./, "").toLowerCase();
   } catch (_) {
     return;
   }
@@ -824,17 +837,16 @@ async function refreshHeader() {
     const opt = document.createElement("option");
     opt.value = id;
     opt.textContent =
-      PANEL_PROVIDER_LABELS[id] ||
-      p.label.replace(/ \(.*\)$/, "");
+      PANEL_PROVIDER_LABELS[id] || p.label.replace(/ \(.*\)$/, "");
     if (id === s.provider) opt.selected = true;
     providerSelect.appendChild(opt);
   }
 
-  const models = (cfg.models && cfg.models.length
-    ? cfg.models
-    : info?.knownModels || []
+  const models = (
+    cfg.models && cfg.models.length ? cfg.models : info?.knownModels || []
   ).slice();
-  if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
+  if (currentModel && !models.includes(currentModel))
+    models.unshift(currentModel);
   modelSelect.innerHTML = "";
   if (models.length === 0) {
     const opt = document.createElement("option");
@@ -892,14 +904,19 @@ async function loadAndApplyTheme() {
 
 async function init() {
   await loadAndApplyTheme();
-  const { agentMode, pendingPrompt, targetTabId: tid, ragMode, visionMode } =
-    await chrome.storage.local.get([
-      "agentMode",
-      "pendingPrompt",
-      "targetTabId",
-      "ragMode",
-      "visionMode",
-    ]);
+  const {
+    agentMode,
+    pendingPrompt,
+    targetTabId: tid,
+    ragMode,
+    visionMode,
+  } = await chrome.storage.local.get([
+    "agentMode",
+    "pendingPrompt",
+    "targetTabId",
+    "ragMode",
+    "visionMode",
+  ]);
   targetTabId = tid ?? null;
   agentToggle.checked = !!agentMode;
   ragToggle.checked = ragMode !== false;
