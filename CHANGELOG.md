@@ -14,6 +14,16 @@ All notable changes to the extension. Versions follow the `manifest.json`
 - **New agent tools** — `wait_for_element`, `scroll_to_element`, `extract_data`.
 - **Agent step bar** — numbered steps plus Pause / Resume / Cancel while the
   agent loop runs.
+- **File backup & restore** — Export / Import buttons in Settings → Backup & Sync
+  download a JSON file containing all settings, prompt library, bookmarks, and
+  installed-extension list. API keys are included in the export (unlike Gist
+  backups) so a single file fully restores a device. Import validates the backup
+  schema before applying.
+- **Agent JSON resilience** — models that wrap tool-call JSON in outer double
+  quotes are now unquoted automatically; agent mode no longer hallucinates page
+  content because page context is injected into the system prompt.
+- **ADB push auto-packages** — `scripts/adb-update.ps1` now runs
+  `package-extension.ps1` before pushing to the device.
 
 ## 0.7.0
 
