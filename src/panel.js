@@ -492,6 +492,18 @@ function handlePortMessage(m, port) {
       actions.appendChild(btn);
       lastMsg.appendChild(actions);
     }
+  } else if (m.event === "agent_debug") {
+    // Show collapsible raw output for debugging
+    const details = document.createElement("details");
+    details.className = "agent-debug";
+    const summary = document.createElement("summary");
+    summary.textContent = `Debug: ${m.reason || "raw output"} — click to expand`;
+    details.appendChild(summary);
+    const pre = document.createElement("pre");
+    pre.className = "agent-debug-raw";
+    pre.textContent = m.raw || "(empty)";
+    details.appendChild(pre);
+    messagesEl.appendChild(details);
   }
 }
 

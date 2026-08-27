@@ -25,6 +25,11 @@ All notable changes to the extension. Versions follow the `manifest.json`
 - **Agent continue after step limit** — when an agent hits the 8-step cap, a
   Continue button appears. Click it and type to resume the same task from where
   it stopped; conversation history and page context are preserved.
+- **Agent debug panel** — when the model's JSON output can't be parsed, a
+  collapsible details element shows the raw output (up to 2000 chars) for
+  troubleshooting instead of a truncated 200-char snip.
+- **Keyboard shortcut bar** — a thin bar below the mode toggles shows the
+  available shortcuts (`Ctrl+Shift+A/N/G/R`); hidden on narrow mobile screens.
 - **ADB push auto-packages** — `scripts/adb-update.ps1` now runs
   `package-extension.ps1` before pushing to the device.
 

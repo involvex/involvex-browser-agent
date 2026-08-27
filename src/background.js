@@ -639,8 +639,13 @@ async function runAgent(port, userText, history, tabId) {
     if (!parsed) {
       const truncated = raw.slice(0, 200).replace(/\n/g, " ");
       port.postMessage({
+        event: "agent_debug",
+        raw: raw.slice(0, 2000),
+        reason: "parse_failed",
+      });
+      port.postMessage({
         event: "assistant",
-        text: `Could not parse agent JSON output. Raw snip: "${truncated}"`,
+        text: `Could not parse agent JSON output. Check the debug details below.`,
       });
       port.postMessage({ event: "done" });
       return;
@@ -788,8 +793,13 @@ async function continueAgent(port, stateKey, userText) {
     if (!parsed) {
       const truncated = raw.slice(0, 200).replace(/\n/g, " ");
       port.postMessage({
+        event: "agent_debug",
+        raw: raw.slice(0, 2000),
+        reason: "parse_failed",
+      });
+      port.postMessage({
         event: "assistant",
-        text: `Could not parse agent JSON output. Raw snip: "${truncated}"`,
+        text: `Could not parse agent JSON output. Check the debug details below.`,
       });
       port.postMessage({ event: "done" });
       return;
