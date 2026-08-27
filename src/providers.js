@@ -78,7 +78,14 @@ export const PROVIDERS = {
     defaultModel: "qwen2.5:3b",
     needsKey: false,
     defaultBaseUrl: "http://localhost:11434",
-    knownModels: ["qwen2.5:3b", "llama3.2:3b", "phi3.5", "gemma2:2b", "llava:7b", "moondream"],
+    knownModels: [
+      "qwen2.5:3b",
+      "llama3.2:3b",
+      "phi3.5",
+      "gemma2:2b",
+      "llava:7b",
+      "moondream",
+    ],
     supportsVision: true,
     visionModels: ["llava:7b", "llava", "moondream", "bakllava"],
   },
@@ -89,13 +96,12 @@ export const PROVIDERS = {
     defaultBaseUrl: "http://127.0.0.1:8765/v1",
     knownModels: ["fastvlm-0.5b"],
     supportsVision: true,
-    hint:
-      "Run scripts/fastvlm-bridge.py with FastVLM-0.5B.litertlm from huggingface.co/litert-community/FastVLM-0.5B",
+    hint: "Run scripts/fastvlm-bridge.py with FastVLM-0.5B.litertlm from huggingface.co/litert-community/FastVLM-0.5B",
   },
 };
 
 export function providerSupportsVision(provider) {
-  return !!(PROVIDERS[provider]?.supportsVision);
+  return !!PROVIDERS[provider]?.supportsVision;
 }
 
 /// Builds a user message, optionally attaching a page screenshot for vision models.
@@ -113,8 +119,7 @@ export function buildUserMessage(text, imageDataUrl) {
 function messageHasImage(messages) {
   return messages.some(
     (m) =>
-      Array.isArray(m.content) &&
-      m.content.some((p) => p.type === "image_url"),
+      Array.isArray(m.content) && m.content.some((p) => p.type === "image_url"),
   );
 }
 
@@ -138,7 +143,10 @@ const DEFAULT_TIMEOUT_MS = 90000;
 async function request(url, { method = "POST", headers = {}, body, signal }) {
   const res = await fetch(url, {
     method,
-    headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...headers,
+    },
     body: body ? JSON.stringify(body) : undefined,
     signal,
   });
@@ -146,7 +154,14 @@ async function request(url, { method = "POST", headers = {}, body, signal }) {
     const detail = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText} ${detail}`.trim());
   }
-  return res.json();
+  const text = await res.text().catch(() => "");
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    throw new Error(
+      `[non-json 200] ${res.status} ${res.statusText} ${text.slice(0, 500).trim()}`,
+    );
+  }
 }
 
 function baseUrlFor(provider, cfg) {
@@ -190,7 +205,10 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
-          { "HTTP-Referer": "https://involvex.browser", "X-Title": "Involvex AI" },
+          {
+            "HTTP-Referer": "https://involvex.browser",
+            "X-Title": "Involvex AI",
+          },
         );
       case "opencode":
         return await chatOpenAiCompatible(
@@ -279,10 +297,10 @@ export async function listModels(settings) {
         return (data.data || []).map((m) => m.id).sort();
       }
       case "openrouter": {
-        const data = await request(
-          `${baseUrlFor("openrouter", cfg)}/models`,
-          { method: "GET", signal: controller.signal },
-        );
+        const data = await request(`${baseUrlFor("openrouter", cfg)}/models`, {
+          method: "GET",
+          signal: controller.signal,
+        });
         return (data.data || []).map((m) => m.id).sort();
       }
       case "opencode": {
@@ -369,7 +387,10 @@ async function chatGemini(apiKey, model, messages, signal) {
     `${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const data = await request(url, { body, signal });
   const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts.map((p) => p.text || "").join("").trim();
+  return parts
+    .map((p) => p.text || "")
+    .join("")
+    .trim();
 }
 
 async function chatOpenAiCompatible(
@@ -410,7 +431,10 @@ async function chatAnthropic(apiKey, model, messages, signal) {
     signal,
   });
   const blocks = data?.content || [];
-  return blocks.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+  return blocks
+    .map((b) => (b.type === "text" ? b.text : ""))
+    .join("")
+    .trim();
 }
 
 async function chatOllama(base, model, messages, signal) {
@@ -573,7 +597,13 @@ export async function chatStream(settings, messages, onToken) {
   try {
     switch (provider) {
       case "gemini":
-        await streamGemini(cfg.apiKey, model, messages, controller.signal, emit);
+        await streamGemini(
+          cfg.apiKey,
+          model,
+          messages,
+          controller.signal,
+          emit,
+        );
         break;
       case "openai":
         await streamOpenAiCompatible(
@@ -593,7 +623,10 @@ export async function chatStream(settings, messages, onToken) {
           messages,
           controller.signal,
           emit,
-          { "HTTP-Referer": "https://involvex.browser", "X-Title": "Involvex AI" },
+          {
+            "HTTP-Referer": "https://involvex.browser",
+            "X-Title": "Involvex AI",
+          },
         );
         break;
       case "opencode":

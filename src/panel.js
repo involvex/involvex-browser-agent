@@ -69,7 +69,20 @@ let agentCanContinue = false;
 let agentContinueStateKey = null;
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+}
+
+function renderRawBlock(raw, cssClass = "agent-debug-raw") {
+  const details = document.createElement("details");
+  details.className = "raw-toggle";
+  const summary = document.createElement("summary");
+  summary.textContent = `</> Raw output — click to expand`;
+  details.appendChild(summary);
+  const pre = document.createElement("pre");
+  pre.className = cssClass;
+  pre.textContent = raw || "(empty)";
+  details.appendChild(pre);
+  return details;
 }
 
 function showToast(text, ms = 2800) {
@@ -195,9 +208,9 @@ function renderVisibleMessages() {
       loadDiv.textContent = `Show older messages (${allMessages - renderedCount} more)`;
       loadDiv.addEventListener("click", () => {
         // Show all messages by removing hidden class
-        messagesEl
-          .querySelectorAll(".msg.hidden")
-          .forEach((el) => el.classList.remove("hidden"));
+        messagesEl.querySelectorAll(".msg.hidden").forEach((el) => {
+          void el.classList.remove("hidden");
+        });
         scrollToBottom();
         if (loadMoreEl) loadMoreEl.remove();
       });
@@ -223,7 +236,9 @@ function addMessage(role, text, kind) {
 }
 
 function clearRegenerateButtons() {
-  messagesEl.querySelectorAll(".msg-actions").forEach((node) => node.remove());
+  messagesEl.querySelectorAll(".msg-actions").forEach((node) => {
+    void node.remove();
+  });
 }
 
 function attachRegenerate(msgEl) {
@@ -393,7 +408,7 @@ function makeMessageId(role) {
   return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function finishAssistant(text) {
+function finishAssistant(text, raw) {
   clearStatus();
   let el;
   if (streamEl) {
@@ -406,10 +421,12 @@ function finishAssistant(text) {
     el = addMessage("assistant", text);
   }
   const id = makeMessageId("msg");
-  history.push({ role: "assistant", content: text, id });
-  // Trim history if exceeding max messages (memory management)
+  history.push({ role: "assistant", content: text, id, raw: raw || text });
   if (history.length > MAX_HISTORY_MESSAGES) {
     history.splice(0, history.length - MAX_HISTORY_MESSAGES);
+  }
+  if (raw) {
+    el.appendChild(renderRawBlock(raw, "assistant-raw"));
   }
   attachRegenerate(el);
   attachPinButton(el);
@@ -460,7 +477,7 @@ function handlePortMessage(m, port) {
     showConfirm(m.id, m.detail);
     showAgentBar("Waiting for confirmation…");
   } else if (m.event === "assistant") {
-    finishAssistant(m.text);
+    finishAssistant(m.text, m.raw);
   } else if (m.event === "error") {
     clearStatus();
     hideConfirm();
@@ -493,7 +510,6 @@ function handlePortMessage(m, port) {
       lastMsg.appendChild(actions);
     }
   } else if (m.event === "agent_debug") {
-    // Show collapsible raw output for debugging
     const details = document.createElement("details");
     details.className = "agent-debug";
     const summary = document.createElement("summary");
@@ -520,7 +536,18 @@ async function sendAsk(text) {
       vision: visionToggle.checked,
       rag: ragToggle.checked,
     });
-    if (!prep?.ok) throw new Error(prep?.error || "Could not prepare request");
+    if (!prep?.ok) {
+      const errText = prep?.error || "Could not prepare request";
+      const el = addMessage("assistant", `Error: ${errText}`, "error");
+      if (prep?.raw) {
+        el.appendChild(renderRawBlock(prep.raw, "error-raw"));
+      }
+      setBusy(false);
+      return;
+    }
+    if (prep.pageStatus === "restricted") {
+      showToast("Page content restricted — summary may be incomplete.", 4000);
+    }
 
     const settings =
       prep.settings || (await chrome.storage.local.get("settings")).settings;
@@ -555,10 +582,11 @@ async function sendAsk(text) {
     } else {
       answer = await chat(s, prep.messages);
     }
-    finishAssistant(answer);
+    finishAssistant(answer, answer);
   } catch (e) {
     clearStatus();
-    addMessage("assistant", `Error: ${String((e && e.message) || e)}`, "error");
+    const errText = String((e && e.message) || e);
+    addMessage("assistant", `Error: ${errText}`, "error");
   } finally {
     // Cache page text from response for future asks on this tab
     // prep.pageText is set by the background worker when available
@@ -778,8 +806,11 @@ async function loadSession(id) {
   sessionCreatedAt = s.createdAt;
   let lastAssistantEl = null;
   for (const m of s.messages) {
-    history.push({ role: m.role, content: m.content });
+    history.push({ role: m.role, content: m.content, raw: m.raw });
     const el = addMessage(m.role, m.content);
+    if (m.role === "assistant" && m.raw) {
+      el.appendChild(renderRawBlock(m.raw, "assistant-raw"));
+    }
     if (m.role === "assistant") lastAssistantEl = el;
   }
   if (lastAssistantEl) attachRegenerate(lastAssistantEl);
@@ -1171,6 +1202,13 @@ async function init() {
     "visionMode",
   ]);
   targetTabId = tid ?? null;
+  const validId = await validateTargetTab(targetTabId);
+  if (validId == null && targetTabId != null) {
+    targetTabId = null;
+    await chrome.storage.local.set({ targetTabId: null });
+  } else {
+    targetTabId = validId != null ? validId : targetTabId;
+  }
   agentToggle.checked = !!agentMode;
   ragToggle.checked = ragMode !== false;
   visionToggle.checked = !!visionMode;
@@ -1199,6 +1237,14 @@ chrome.runtime.onMessage.addListener(async (msg) => {
       "targetTabId",
     ]);
     if (tid != null) targetTabId = tid;
+    const validId = await validateTargetTab(targetTabId);
+    if (validId == null && targetTabId != null) {
+      targetTabId = null;
+      await chrome.storage.local.set({ targetTabId: null });
+      showToast("Previous tab unavailable — using the active tab.");
+    } else if (validId != null) {
+      targetTabId = validId;
+    }
     await applyAgentSitePolicy();
     await refreshHeader();
     if (pendingPrompt) {
@@ -1272,6 +1318,25 @@ function loadContextSection() {
   const savedSection = saved && validSections.includes(saved) ? saved : "full";
   contextSectionEl.value = savedSection;
   updateContextCharCount(savedSection);
+}
+
+async function validateTargetTab(tabId) {
+  if (tabId == null) return null;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab?.id) return null;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {},
+      });
+    } catch (_) {
+      return null;
+    }
+    return tab.id;
+  } catch (_) {
+    return null;
+  }
 }
 
 init();

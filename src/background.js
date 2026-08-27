@@ -525,10 +525,12 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
   const settings = await loadSettings();
   const tab = await resolveTargetTab(tabId);
   let page = null;
+  let pageStatus = "ok";
   try {
     if (tab) page = await runInPage(tab.id, pageExtract, [MAX_PAGE_CHARS]);
   } catch (_) {
-    // restricted page (chrome://, store, etc.) — continue without context
+    page = null;
+    pageStatus = "restricted";
   }
   const ragEnabled = opts.rag ?? settings.rag?.enabled ?? false;
   const ragOptions = {
@@ -556,6 +558,8 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
   return {
     messages: [{ role: "system", content: system }, ...history, userMsg],
     settings,
+    pageStatus,
+    pageText: page?.text || "",
   };
 }
 
@@ -615,12 +619,14 @@ async function runAgent(port, userText, history, tabId) {
 
   port.postMessage({ event: "agent_start" });
 
+  let lastRaw = "";
   for (let step = 0; step < MAX_AGENT_STEPS; step++) {
     await waitIfPaused(port);
     if (ctrl.cancelled) {
       port.postMessage({
         event: "assistant",
         text: "Agent cancelled.",
+        raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
@@ -630,8 +636,13 @@ async function runAgent(port, userText, history, tabId) {
       text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
     });
     const raw = await agentModelReply(settings, convo, port);
+    lastRaw = raw;
     if (ctrl.cancelled) {
-      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({
+        event: "assistant",
+        text: "Agent cancelled.",
+        raw: lastRaw,
+      });
       port.postMessage({ event: "done" });
       return;
     }
@@ -646,6 +657,7 @@ async function runAgent(port, userText, history, tabId) {
       port.postMessage({
         event: "assistant",
         text: `Could not parse agent JSON output. Check the debug details below.`,
+        raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
@@ -655,6 +667,7 @@ async function runAgent(port, userText, history, tabId) {
       port.postMessage({
         event: "assistant",
         text: parsed.args?.answer || "Done.",
+        raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
@@ -731,6 +744,7 @@ async function runAgent(port, userText, history, tabId) {
   port.postMessage({
     event: "assistant",
     text: "Stopped after the step limit. Ask me to continue if needed.",
+    raw: lastRaw,
   });
   // Save state so the user can continue from where we left off
   const stateKey = `agent-${Date.now()}`;
@@ -772,10 +786,15 @@ async function continueAgent(port, stateKey, userText) {
 
   port.postMessage({ event: "agent_start" });
 
+  let lastRaw = "";
   for (let step = 0; step < MAX_AGENT_STEPS; step++) {
     await waitIfPaused(port);
     if (ctrl.cancelled) {
-      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({
+        event: "assistant",
+        text: "Agent cancelled.",
+        raw: lastRaw,
+      });
       port.postMessage({ event: "done" });
       return;
     }
@@ -784,8 +803,13 @@ async function continueAgent(port, stateKey, userText) {
       text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
     });
     const raw = await agentModelReply(settings, convo, port);
+    lastRaw = raw;
     if (ctrl.cancelled) {
-      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({
+        event: "assistant",
+        text: "Agent cancelled.",
+        raw: lastRaw,
+      });
       port.postMessage({ event: "done" });
       return;
     }
@@ -800,6 +824,7 @@ async function continueAgent(port, stateKey, userText) {
       port.postMessage({
         event: "assistant",
         text: `Could not parse agent JSON output. Check the debug details below.`,
+        raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
@@ -809,6 +834,7 @@ async function continueAgent(port, stateKey, userText) {
       port.postMessage({
         event: "assistant",
         text: parsed.args?.answer || "Done.",
+        raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
@@ -888,6 +914,7 @@ async function continueAgent(port, stateKey, userText) {
   port.postMessage({
     event: "assistant",
     text: "Stopped after the step limit. Ask me to continue if needed.",
+    raw: lastRaw,
   });
   port.postMessage({ event: "step_limit_reached", stateKey: newStateKey });
   port.postMessage({ event: "done" });
@@ -947,11 +974,6 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: "involvex-summarize-page",
-      title: "Involvex AI: Summarize page",
-      contexts: ["page"],
-    });
-    chrome.contextMenus.create({
       id: "involvex-explain",
       title: "Involvex AI: Explain selection",
       contexts: ["selection"],
@@ -966,6 +988,16 @@ chrome.runtime.onInstalled.addListener(async () => {
       title: "Involvex AI: Rewrite selection",
       contexts: ["selection"],
     });
+    chrome.contextMenus.create({
+      id: "involvex-summarize-page",
+      title: "Involvex AI: Summarize page",
+      contexts: ["page"],
+    });
+    chrome.contextMenus.create({
+      id: "involvex-summarize-selection",
+      title: "Involvex AI: Summarize selection",
+      contexts: ["selection"],
+    });
   });
   const { settings } = await chrome.storage.local.get("settings");
   await syncBackupAlarm(settings || {});
@@ -975,9 +1007,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const sel = info.selectionText || "";
   let prompt = "";
   switch (info.menuItemId) {
-    case "involvex-summarize-page":
-      prompt = "Summarize the current page as a few concise bullet points.";
-      break;
     case "involvex-explain":
       prompt = `Explain this clearly:\n\n"""${sel}"""`;
       break;
@@ -986,6 +1015,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       break;
     case "involvex-rewrite":
       prompt = `Rewrite this to be clearer and more concise, keeping the meaning:\n\n"""${sel}"""`;
+      break;
+    case "involvex-summarize-selection":
+      prompt = `Summarize this selection in a few bullet points:\n\n"""${sel}"""`;
+      break;
+    case "involvex-summarize-page":
+      prompt = "Summarize the current page as a few concise bullet points.";
       break;
     default:
       return;
@@ -1047,7 +1082,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         );
         sendResponse({ ok: true, ...built });
       } catch (e) {
-        sendResponse({ ok: false, error: String((e && e.message) || e) });
+        const errMsg = String((e && e.message) || e);
+        const raw = errMsg.length > 2000 ? errMsg.slice(0, 2000) + "…" : errMsg;
+        sendResponse({ ok: false, error: errMsg, raw });
       }
     })();
     return true;
