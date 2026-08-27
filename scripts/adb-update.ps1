@@ -127,6 +127,9 @@ if (-not $SkipRestart) {
   }
 }
 
+Write-Host "`nPackaging extension for store/Kiwi..." -ForegroundColor Yellow
+& "$PSScriptRoot\package-extension.ps1"
+
 Write-Host "`nRemoving old extension copy..." -ForegroundColor Yellow
 Invoke-Adb @("shell", "rm", "-rf", $DeviceDir)
 Invoke-Adb @("shell", "mkdir", "-p", $DeviceDir)
