@@ -210,7 +210,7 @@ const FULL_BACKUP_SCHEMA = "involvex-full-backup/1";
 export async function buildFullBackup() {
   const bookmarks = await chrome.bookmarks.getTree();
   const store = await chrome.storage.local.get(null);
-  const settings = store.settings || {};
+  const settings = { ...(store.settings || {}) };
   const extensions = await collectExtensions();
   const includeChatHistory = !!(
     settings.backup && settings.backup.includeChatHistory
@@ -234,6 +234,11 @@ export async function buildFullBackup() {
 
 /// Restores from a full backup file (including API keys).
 export async function restoreFullBackup(backup) {
+  if (!backup || backup.schema !== FULL_BACKUP_SCHEMA) {
+    throw new Error(
+      "Invalid backup file. Expected schema: " + FULL_BACKUP_SCHEMA,
+    );
+  }
   let bookmarksAdded = 0;
   let sessionsMerged = 0;
   if (backup.bookmarks) {
