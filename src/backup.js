@@ -82,7 +82,9 @@ export async function buildBackup() {
 
 export async function pushBackup(token, gistId) {
   const payload = await buildBackup();
-  const files = { [BACKUP_FILE]: { content: JSON.stringify(payload, null, 2) } };
+  const files = {
+    [BACKUP_FILE]: { content: JSON.stringify(payload, null, 2) },
+  };
   if (gistId) {
     const data = await gh(`/gists/${gistId}`, token, {
       method: "PATCH",
@@ -187,6 +189,71 @@ export async function restoreBackup(backup) {
       merged.theme = current.theme;
     }
     await chrome.storage.local.set({ settings: merged });
+  }
+  if (backup.sessions && backup.sessions.length) {
+    const { sessions: current } = await chrome.storage.local.get("sessions");
+    const merged = mergeSessions(current, backup.sessions);
+    sessionsMerged = merged.length;
+    await chrome.storage.local.set({ sessions: merged });
+  }
+  return {
+    bookmarksAdded,
+    extensions: backup.extensions ? backup.extensions.length : 0,
+    extensionList: extensionInstallLinks(backup.extensions || []),
+    sessionsMerged,
+  };
+}
+
+const FULL_BACKUP_SCHEMA = "involvex-full-backup/1";
+
+/// Builds a full backup payload including API keys (for local file export).
+export async function buildFullBackup() {
+  const bookmarks = await chrome.bookmarks.getTree();
+  const store = await chrome.storage.local.get(null);
+  const settings = store.settings || {};
+  const extensions = await collectExtensions();
+  const includeChatHistory = !!(
+    settings.backup && settings.backup.includeChatHistory
+  );
+  const includePrompts = !!(settings.backup && settings.backup.includePrompts);
+  if (!includePrompts) {
+    delete settings.prompts;
+  }
+  const payload = {
+    schema: FULL_BACKUP_SCHEMA,
+    createdAt: new Date().toISOString(),
+    bookmarks,
+    settings,
+    extensions,
+  };
+  if (includeChatHistory && Array.isArray(store.sessions)) {
+    payload.sessions = store.sessions;
+  }
+  return payload;
+}
+
+/// Restores from a full backup file (including API keys).
+export async function restoreFullBackup(backup) {
+  let bookmarksAdded = 0;
+  let sessionsMerged = 0;
+  if (backup.bookmarks) {
+    const flat = flattenBookmarks(backup.bookmarks);
+    const folder = await chrome.bookmarks.create({
+      title: `Involvex Restore ${new Date().toISOString().slice(0, 10)}`,
+    });
+    for (const b of flat) {
+      try {
+        await chrome.bookmarks.create({
+          parentId: folder.id,
+          title: b.title,
+          url: b.url,
+        });
+        bookmarksAdded++;
+      } catch (_) {}
+    }
+  }
+  if (backup.settings) {
+    await chrome.storage.local.set({ settings: backup.settings });
   }
   if (backup.sessions && backup.sessions.length) {
     const { sessions: current } = await chrome.storage.local.get("sessions");

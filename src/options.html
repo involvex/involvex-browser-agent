@@ -53,7 +53,11 @@
         <h2>Anthropic Claude</h2>
         <label class="field">
           <span>API key</span>
-          <input type="password" id="anthropic-apiKey" placeholder="sk-ant-..." />
+          <input
+            type="password"
+            id="anthropic-apiKey"
+            placeholder="sk-ant-..."
+          />
         </label>
         <div class="model-row" data-model-for="anthropic"></div>
         <p class="hint">Get a key at console.anthropic.com</p>
@@ -63,7 +67,11 @@
         <h2>OpenRouter</h2>
         <label class="field">
           <span>API key</span>
-          <input type="password" id="openrouter-apiKey" placeholder="sk-or-..." />
+          <input
+            type="password"
+            id="openrouter-apiKey"
+            placeholder="sk-or-..."
+          />
         </label>
         <label class="field">
           <span>Base URL</span>
@@ -84,7 +92,11 @@
         <h2>OpenCode Zen</h2>
         <label class="field">
           <span>API key</span>
-          <input type="password" id="opencode-apiKey" placeholder="opencode key" />
+          <input
+            type="password"
+            id="opencode-apiKey"
+            placeholder="opencode key"
+          />
         </label>
         <label class="field">
           <span>Base URL</span>
@@ -135,8 +147,8 @@
         </label>
         <div class="model-row" data-model-for="ollama"></div>
         <p class="hint">
-          Run a small local model, e.g. <code>ollama pull qwen2.5:3b</code>.
-          For vision: <code>ollama pull llava:7b</code>. Start with
+          Run a small local model, e.g. <code>ollama pull qwen2.5:3b</code>. For
+          vision: <code>ollama pull llava:7b</code>. Start with
           <code>OLLAMA_ORIGINS=* ollama serve</code> so the extension can reach
           it. For RAG embeddings: <code>ollama pull nomic-embed-text</code>.
         </p>
@@ -155,10 +167,14 @@
         <div class="model-row" data-model-for="fastvlm"></div>
         <p class="hint">
           Download
-          <a href="https://huggingface.co/litert-community/FastVLM-0.5B" target="_blank" rel="noopener">FastVLM-0.5B.litertlm</a>.
-          <strong>Python 3.10+</strong> required for the PC bridge. On Android, run a
-          local server on the phone (HostAI or flutter_litert_lm) — see
-          <code>docs/FASTVLM-SETUP.md</code>.
+          <a
+            href="https://huggingface.co/litert-community/FastVLM-0.5B"
+            target="_blank"
+            rel="noopener"
+            >FastVLM-0.5B.litertlm</a
+          >. <strong>Python 3.10+</strong> required for the PC bridge. On
+          Android, run a local server on the phone (HostAI or flutter_litert_lm)
+          — see <code>docs/FASTVLM-SETUP.md</code>.
         </p>
       </section>
 
@@ -195,11 +211,19 @@
       </p>
       <label class="field">
         <span>Ask mode</span>
-        <textarea id="system-ask" rows="4" placeholder="Ask-mode system prompt"></textarea>
+        <textarea
+          id="system-ask"
+          rows="4"
+          placeholder="Ask-mode system prompt"
+        ></textarea>
       </label>
       <label class="field">
         <span>Agent mode</span>
-        <textarea id="system-agent" rows="3" placeholder="Agent-mode preamble"></textarea>
+        <textarea
+          id="system-agent"
+          rows="3"
+          placeholder="Agent-mode preamble"
+        ></textarea>
       </label>
       <div class="actions">
         <button id="systemSave" class="primary">Save system prompts</button>
@@ -221,7 +245,12 @@
         <button id="promptReset">Reset to defaults</button>
         <button id="promptExport">Export JSON</button>
         <button id="promptImport">Import JSON</button>
-        <input type="file" id="promptImportFile" accept="application/json,.json" hidden />
+        <input
+          type="file"
+          id="promptImportFile"
+          accept="application/json,.json"
+          hidden
+        />
         <button id="promptSave" class="primary">Save prompts</button>
         <span id="promptStatus" class="status"></span>
       </div>
@@ -235,11 +264,19 @@
       </p>
       <label class="field">
         <span>Allow list (auto-enable Agent)</span>
-        <textarea id="agent-allow" rows="3" placeholder="example.com&#10;app.mysite.dev"></textarea>
+        <textarea
+          id="agent-allow"
+          rows="3"
+          placeholder="example.com&#10;app.mysite.dev"
+        ></textarea>
       </label>
       <label class="field">
         <span>Deny list (force Agent off)</span>
-        <textarea id="agent-deny" rows="3" placeholder="bank.com&#10;mail.google.com"></textarea>
+        <textarea
+          id="agent-deny"
+          rows="3"
+          placeholder="bank.com&#10;mail.google.com"
+        ></textarea>
       </label>
       <div class="actions">
         <button id="agentSitesSave" class="primary">Save agent sites</button>
@@ -250,13 +287,16 @@
 
       <h1>Page RAG</h1>
       <p class="sub">
-        On long pages, retrieve only the most relevant excerpts instead of sending
-        the full text. Uses local TF-IDF by default; enable Ollama embeddings for
-        better accuracy.
+        On long pages, retrieve only the most relevant excerpts instead of
+        sending the full text. Uses local TF-IDF by default; enable Ollama
+        embeddings for better accuracy.
       </p>
       <label class="check">
         <input type="checkbox" id="rag-useEmbeddings" />
-        <span>Use Ollama embeddings (<code>nomic-embed-text</code>) when available</span>
+        <span
+          >Use Ollama embeddings (<code>nomic-embed-text</code>) when
+          available</span
+        >
       </label>
       <label class="field">
         <span>Embedding model</span>
@@ -277,23 +317,40 @@
 
       <label class="field">
         <span>GitHub token (scope: <code>gist</code>)</span>
-        <input type="password" id="backup-gistToken" placeholder="github_pat_... or ghp_..." />
+        <input
+          type="password"
+          id="backup-gistToken"
+          placeholder="github_pat_... or ghp_..."
+        />
       </label>
       <label class="field">
         <span>Gist id (filled automatically after first backup)</span>
-        <input type="text" id="backup-gistId" placeholder="leave empty to create a new gist" />
+        <input
+          type="text"
+          id="backup-gistId"
+          placeholder="leave empty to create a new gist"
+        />
       </label>
       <label class="check">
         <input type="checkbox" id="backup-includeExtensions" />
-        <span>Include installed-extension list (asks for "management" permission)</span>
+        <span
+          >Include installed-extension list (asks for "management"
+          permission)</span
+        >
       </label>
       <label class="check">
         <input type="checkbox" id="backup-includeChatHistory" />
-        <span>Include chat history in Gist backup (merged on restore, max 50 sessions)</span>
+        <span
+          >Include chat history in Gist backup (merged on restore, max 50
+          sessions)</span
+        >
       </label>
       <label class="check">
         <input type="checkbox" id="backup-includePrompts" />
-        <span>Include prompt library in Gist backup (restored when present; otherwise local prompts kept)</span>
+        <span
+          >Include prompt library in Gist backup (restored when present;
+          otherwise local prompts kept)</span
+        >
       </label>
       <label class="field">
         <span>Auto-backup schedule</span>
@@ -326,6 +383,25 @@
         with only the <code>gist</code> scope. Restore adds bookmarks into a new
         "Involvex Restore" folder (it never overwrites existing bookmarks).
       </p>
+
+      <hr class="sep" />
+
+      <h1>File Backup</h1>
+      <p class="sub">
+        Export a complete backup file including API keys and all settings.
+        <strong>Store this file securely</strong> — it contains your API keys.
+      </p>
+      <div class="actions">
+        <button id="exportFullBackup" type="button">Export to file</button>
+        <button id="importFullBackup" type="button">Import from file</button>
+        <input
+          type="file"
+          id="importFullBackupFile"
+          accept="application/json,.json"
+          hidden
+        />
+        <span id="fullBackupStatus" class="status"></span>
+      </div>
     </div>
     <script src="options.js" type="module"></script>
   </body>

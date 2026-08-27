@@ -1,5 +1,6 @@
 import { PROVIDERS, chat, listModels } from "./providers.js";
 import { loadEnv, envGistToken, envGistId } from "./env.js";
+import { buildFullBackup, restoreFullBackup } from "./backup.js";
 import {
   DEFAULT_PROMPTS,
   DEFAULT_ASK_SYSTEM,
@@ -63,7 +64,9 @@ function buildModelRows() {
 
 function populateModelSelect(provider, models, current) {
   const sel = el(`${provider}-model-select`);
-  const list = (models && models.length ? models : PROVIDERS[provider].knownModels || []).slice();
+  const list = (
+    models && models.length ? models : PROVIDERS[provider].knownModels || []
+  ).slice();
   sel.innerHTML = "";
   for (const m of list) {
     const o = document.createElement("option");
@@ -335,7 +338,10 @@ async function saveBackupSettings() {
       });
       if (!granted) {
         el("backup-includeExtensions").checked = false;
-        setBackupStatus("Management permission denied; extension list off.", "err");
+        setBackupStatus(
+          "Management permission denied; extension list off.",
+          "err",
+        );
       }
     } catch (_) {
       // permission API unavailable (e.g. Android) — proceed without it
@@ -431,6 +437,56 @@ async function restoreNow() {
   }
 }
 
+function setFullBackupStatus(text, kind) {
+  const node = el("fullBackupStatus");
+  node.textContent = text;
+  node.className = `status ${kind || ""}`;
+}
+
+function exportFullBackup() {
+  setFullBackupStatus("Exporting…", "");
+  buildFullBackup()
+    .then((payload) => {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `involvex-full-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setFullBackupStatus("Exported.", "ok");
+    })
+    .catch((err) => {
+      setFullBackupStatus(`Export failed: ${err.message}`, "err");
+    });
+}
+
+async function importFullBackup(file) {
+  setFullBackupStatus("Importing…", "");
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const res = await restoreFullBackup(data);
+    const extCount = res.extensionList ? res.extensionList.length : 0;
+    const sessCount = res.sessionsMerged || 0;
+    setFullBackupStatus(
+      `Restored ${res.bookmarksAdded} bookmarks + settings` +
+        (extCount ? `, ${extCount} extensions listed` : "") +
+        (sessCount ? `, ${sessCount} chat sessions merged` : "") +
+        ".",
+      "ok",
+    );
+    renderRestoreExtensions(res.extensionList);
+    load();
+  } catch (err) {
+    setFullBackupStatus(`Import failed: ${err.message}`, "err");
+  }
+}
+
 providerSel.addEventListener("change", showActiveCard);
 el("save").addEventListener("click", save);
 el("test").addEventListener("click", async () => {
@@ -447,7 +503,9 @@ el("promptReset").addEventListener("click", () => {
 });
 el("promptSave").addEventListener("click", savePrompts);
 el("promptExport").addEventListener("click", exportPromptsJson);
-el("promptImport").addEventListener("click", () => el("promptImportFile").click());
+el("promptImport").addEventListener("click", () =>
+  el("promptImportFile").click(),
+);
 el("promptImportFile").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   e.target.value = "";
@@ -500,7 +558,12 @@ el("systemReset").addEventListener("click", resetSystemPrompts);
 function parseDomainList(text) {
   return String(text || "")
     .split(/[\n,]+/)
-    .map((s) => s.trim().toLowerCase().replace(/^www\./, ""))
+    .map((s) =>
+      s
+        .trim()
+        .toLowerCase()
+        .replace(/^www\./, ""),
+    )
     .filter(Boolean);
 }
 
@@ -518,6 +581,17 @@ async function saveAgentSites() {
 }
 
 el("agentSitesSave").addEventListener("click", saveAgentSites);
+
+el("exportFullBackup").addEventListener("click", exportFullBackup);
+el("importFullBackup").addEventListener("click", () =>
+  el("importFullBackupFile").click(),
+);
+el("importFullBackupFile").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return;
+  await importFullBackup(file);
+});
 
 window
   .matchMedia("(prefers-color-scheme: light)")
