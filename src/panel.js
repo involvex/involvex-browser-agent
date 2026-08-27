@@ -289,11 +289,10 @@ function attachPinButton(msgEl) {
   const actions = msgEl.querySelector(".msg-actions");
   if (actions) {
     // Pin button goes before regenerate
-    const firstChild = actions.firstChild;
-    msgEl.querySelector(".msg-content")?.insertBefore(btn, firstChild);
+    msgEl.insertBefore(btn, actions);
   } else {
     // No regenerate — pin goes at end of message
-    el.lastChild?.after(btn);
+    msgEl.lastChild?.after(btn);
     // or append if no children
     if (!msgEl.lastChild) msgEl.appendChild(btn);
   }

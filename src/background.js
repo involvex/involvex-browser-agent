@@ -367,15 +367,41 @@ function extractJsonWithActionKey(raw) {
   const actionMatch = raw.match(/"action"\s*:/);
   if (!actionMatch) return null;
 
-  const braceMatch = raw.match(/\{[^\}]*\}/);
-  if (!braceMatch) return null;
+  const start = raw.indexOf("{", actionMatch.index);
+  if (start === -1) return null;
 
-  const candidate = braceMatch[0];
-  try {
-    const obj = JSON.parse(candidate);
-    if (obj && obj.action) return candidate;
-  } catch (_) {
-    return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const candidate = raw.slice(start, i + 1);
+        try {
+          const obj = JSON.parse(candidate);
+          if (obj && obj.action) return candidate;
+        } catch (_) {
+          return null;
+        }
+        return null;
+      }
+    }
   }
   return null;
 }
