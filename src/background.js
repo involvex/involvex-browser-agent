@@ -363,12 +363,33 @@ function extractJsonFromFenced(raw) {
   return null;
 }
 
+function extractJsonFromOuterQuotes(raw) {
+  const trimmed = raw.trim();
+  if (trimmed.length < 2) return null;
+  if (trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"') {
+    const inner = trimmed.slice(1, -1);
+    try {
+      const obj = JSON.parse(inner);
+      if (obj && typeof obj.action === "string") return JSON.stringify(obj);
+    } catch (_) {
+      try {
+        const unescaped = inner.replace(/\\"/g, '"');
+        const obj = JSON.parse(unescaped);
+        if (obj && typeof obj.action === "string") return JSON.stringify(obj);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 function extractJsonWithActionKey(raw) {
   const actionMatch = raw.match(/"action"\s*:/);
   if (!actionMatch) return null;
 
-  const start = raw.indexOf("{", actionMatch.index);
-  if (start === -1) return null;
+  const start = raw.indexOf("{");
+  if (start === -1 || start > actionMatch.index) return null;
 
   let depth = 0;
   let inString = false;
@@ -408,6 +429,9 @@ function extractJsonWithActionKey(raw) {
 
 function parseAction(raw) {
   let jsonStr = extractJsonFromFenced(raw);
+  if (!jsonStr) {
+    jsonStr = extractJsonFromOuterQuotes(raw);
+  }
   if (!jsonStr) {
     jsonStr = extractJsonWithActionKey(raw);
   }
