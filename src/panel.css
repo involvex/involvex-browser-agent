@@ -453,6 +453,22 @@ body {
   border-color: var(--accent);
 }
 
+.continue-btn {
+  background: transparent;
+  border: 1px solid var(--ok);
+  color: var(--ok);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.continue-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
 .msg.status {
   align-self: flex-start;
   color: var(--muted);

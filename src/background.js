@@ -16,6 +16,9 @@ const PANEL_URL = "src/panel.html";
 /** @type {WeakMap<object, { cancelled: boolean, paused: boolean, confirmResolvers: Map<string, Function> }>} */
 const agentControls = new WeakMap();
 
+/** @type {Map<string, { convo: Array, tabId: number, settings: object }>} */
+const agentStates = new Map();
+
 function getAgentControl(port) {
   let c = agentControls.get(port);
   if (!c) {
@@ -724,6 +727,159 @@ async function runAgent(port, userText, history, tabId) {
     event: "assistant",
     text: "Stopped after the step limit. Ask me to continue if needed.",
   });
+  // Save state so the user can continue from where we left off
+  const stateKey = `agent-${Date.now()}`;
+  agentStates.set(stateKey, { convo, tabId, settings });
+  port.postMessage({ event: "step_limit_reached", stateKey });
+  port.postMessage({ event: "done" });
+}
+
+async function continueAgent(port, stateKey, userText) {
+  const saved = agentStates.get(stateKey);
+  if (!saved) {
+    port.postMessage({
+      event: "error",
+      text: "Session expired. Please start a new agent task.",
+    });
+    port.postMessage({ event: "done" });
+    return;
+  }
+  agentStates.delete(stateKey);
+
+  const ctrl = getAgentControl(port);
+  ctrl.cancelled = false;
+  ctrl.paused = false;
+
+  const { convo, tabId, settings } = saved;
+
+  // Append the new user message to the existing conversation
+  convo.push({ role: "user", content: userText });
+
+  const tab = await resolveTargetTab(tabId);
+  if (!tab) {
+    port.postMessage({
+      event: "error",
+      text: "Original tab is no longer available.",
+    });
+    port.postMessage({ event: "done" });
+    return;
+  }
+
+  port.postMessage({ event: "agent_start" });
+
+  for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+    await waitIfPaused(port);
+    if (ctrl.cancelled) {
+      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({ event: "done" });
+      return;
+    }
+    port.postMessage({
+      event: "status",
+      text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
+    });
+    const raw = await agentModelReply(settings, convo, port);
+    if (ctrl.cancelled) {
+      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({ event: "done" });
+      return;
+    }
+    const parsed = parseAction(raw);
+    if (!parsed) {
+      const truncated = raw.slice(0, 200).replace(/\n/g, " ");
+      port.postMessage({
+        event: "assistant",
+        text: `Could not parse agent JSON output. Raw snip: "${truncated}"`,
+      });
+      port.postMessage({ event: "done" });
+      return;
+    }
+    convo.push({ role: "assistant", content: raw });
+    if (parsed.action === "finish") {
+      port.postMessage({
+        event: "assistant",
+        text: parsed.args?.answer || "Done.",
+      });
+      port.postMessage({ event: "done" });
+      return;
+    }
+
+    const args = parsed.args || {};
+    let clickMeta = null;
+    if (parsed.action === "click") {
+      try {
+        clickMeta = await runInPage(tab.id, pageClickLabel, [args]);
+      } catch (_) {
+        clickMeta = null;
+      }
+    }
+
+    port.postMessage({
+      event: "step",
+      step: step + 1,
+      total: MAX_AGENT_STEPS,
+      action: parsed.action,
+      args,
+      thought: parsed.thought || "",
+    });
+
+    if (actionNeedsConfirm(parsed.action, args, clickMeta)) {
+      const confirmId = `c-${Date.now()}-${step}`;
+      const detail =
+        parsed.action === "navigate"
+          ? `Navigate to ${args.url || "(missing url)"}?`
+          : `Click "${clickMeta?.label || args.text || args.selector || "element"}"?`;
+      port.postMessage({
+        event: "confirm",
+        id: confirmId,
+        action: parsed.action,
+        detail,
+      });
+      const ok = await waitForConfirm(port, confirmId);
+      if (!ok) {
+        convo.push({
+          role: "user",
+          content: `TOOL RESULT (${parsed.action}):\n${JSON.stringify({
+            ok: false,
+            error: "user declined confirmation",
+          })}`,
+        });
+        continue;
+      }
+    }
+
+    await waitIfPaused(port);
+    if (ctrl.cancelled) {
+      port.postMessage({ event: "assistant", text: "Agent cancelled." });
+      port.postMessage({ event: "done" });
+      return;
+    }
+
+    let result;
+    try {
+      result = await execTool(tab, parsed.action, args);
+    } catch (e) {
+      result = { ok: false, error: String((e && e.message) || e) };
+    }
+    port.postMessage({
+      event: "step_result",
+      step: step + 1,
+      action: parsed.action,
+      ok: result?.ok !== false,
+    });
+    convo.push({
+      role: "user",
+      content: `TOOL RESULT (${parsed.action}):\n${JSON.stringify(result).slice(0, 8000)}`,
+    });
+  }
+  // Step limit reached again — save state for another continue
+  const newStateKey = `agent-${Date.now()}`;
+  agentStates.set(newStateKey, { convo, tabId, settings });
+  port.postMessage({
+    event: "assistant",
+    text: "Stopped after the step limit. Ask me to continue if needed.",
+  });
+  port.postMessage({ event: "step_limit_reached", stateKey: newStateKey });
   port.postMessage({ event: "done" });
 }
 
@@ -973,6 +1129,9 @@ chrome.runtime.onConnect.addListener((port) => {
           return;
         }
         await runAgent(port, msg.text, msg.history || [], msg.tabId);
+      }
+      if (msg.type === "continue") {
+        await continueAgent(port, msg.stateKey, msg.text);
       }
     } catch (e) {
       port.postMessage({ event: "error", text: String((e && e.message) || e) });

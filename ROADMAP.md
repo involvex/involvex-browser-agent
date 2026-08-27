@@ -102,13 +102,13 @@ Shipped in **0.8.0**:
 
 ## v0.9 ⏩ — Near-term quick wins
 
-- **JSON parsing robustness** — Fix `parseAction` to reliably handle fenced/non-fenced JSON output from agent
-- **Agent "continue" after step limit** — Allow continuing agent loops beyond 8 steps when user requests
+- **JSON parsing robustness** ✅ — Fix `parseAction` to reliably handle fenced/non-fenced JSON output from agent
+- **Agent "continue" after step limit** ✅ — Allow continuing agent loops beyond 8 steps when user requests
 - **Agent debugging info** — Show truncated raw output when `parseAction` fails, for troubleshooting
 - **Panel keyboard shortcut enhancer** — Display available shortcuts in panel header
-- **Conversation virtualization** — Render only visible messages + buffer; "Load older" indicator for long histories; auto-trim at 50 messages
-- **Caching system** — Page content cache (localStorage, 10-min TTL); reduces redundant extractions on repeated asks
-- **Minimal automated tests** — Test suite for rag.js pure functions (chunkText, tokenize, TF-IDF scoring); no npm build step required
+- **Conversation virtualization** ✅ — Render only visible messages + buffer; "Load older" indicator for long histories; auto-trim at 50 messages
+- **Caching system** ✅ — Page content cache (localStorage, 10-min TTL); reduces redundant extractions on repeated asks
+- **Minimal automated tests** ✅ — Test suite for rag.js pure functions (chunkText, tokenize, TF-IDF scoring); no npm build step required
 
 ---
 

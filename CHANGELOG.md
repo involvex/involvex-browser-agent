@@ -22,6 +22,9 @@ All notable changes to the extension. Versions follow the `manifest.json`
 - **Agent JSON resilience** — models that wrap tool-call JSON in outer double
   quotes are now unquoted automatically; agent mode no longer hallucinates page
   content because page context is injected into the system prompt.
+- **Agent continue after step limit** — when an agent hits the 8-step cap, a
+  Continue button appears. Click it and type to resume the same task from where
+  it stopped; conversation history and page context are preserved.
 - **ADB push auto-packages** — `scripts/adb-update.ps1` now runs
   `package-extension.ps1` before pushing to the device.
 

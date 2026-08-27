@@ -65,6 +65,8 @@ let activeAgentPort = null;
 let agentPaused = false;
 let pendingConfirmId = null;
 let agentPolicyNote = "";
+let agentCanContinue = false;
+let agentContinueStateKey = null;
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -468,6 +470,28 @@ function handlePortMessage(m, port) {
     hideConfirm();
     setBusy(false);
     port.disconnect();
+  } else if (m.event === "step_limit_reached") {
+    agentCanContinue = true;
+    agentContinueStateKey = m.stateKey;
+    // Attach a Continue button to the last assistant message
+    const msgs = messagesEl.querySelectorAll(".msg.assistant");
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg) {
+      const actions = document.createElement("div");
+      actions.className = "msg-actions";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "continue-btn";
+      btn.textContent = "Continue";
+      btn.title = "Continue the agent from where it stopped";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        inputEl.focus();
+        inputEl.placeholder = "Type to continue the agent…";
+      });
+      actions.appendChild(btn);
+      lastMsg.appendChild(actions);
+    }
   }
 }
 
@@ -548,9 +572,37 @@ function send(text, opts = {}) {
   streamText = "";
 
   if (mode === "ask") {
+    agentCanContinue = false;
+    agentContinueStateKey = null;
     sendAsk(text);
     return;
   }
+
+  // If we have saved agent state, continue the previous task
+  if (agentCanContinue && agentContinueStateKey) {
+    const stateKey = agentContinueStateKey;
+    agentCanContinue = false;
+    agentContinueStateKey = null;
+    const port = chrome.runtime.connect({ name: "agent" });
+    activeAgentPort = port;
+    agentPaused = false;
+    showAgentBar("Agent continuing…");
+    port.onMessage.addListener((m) => handlePortMessage(m, port));
+    port.onDisconnect.addListener(() => {
+      clearStatus();
+      setBusy(false);
+    });
+    port.postMessage({
+      type: "continue",
+      stateKey,
+      text,
+    });
+    return;
+  }
+
+  // Starting a fresh agent task — clear any stale continue state
+  agentCanContinue = false;
+  agentContinueStateKey = null;
 
   const port = chrome.runtime.connect({ name: "agent" });
   activeAgentPort = port;
@@ -875,6 +927,8 @@ async function newChat() {
   history.length = 0;
   currentSessionId = null;
   sessionCreatedAt = null;
+  agentCanContinue = false;
+  agentContinueStateKey = null;
   messagesEl.innerHTML = "";
   const div = document.createElement("div");
   div.className = "empty";
@@ -902,6 +956,8 @@ newBtn.addEventListener("click", (e) => {
 
 agentToggle.addEventListener("change", () => {
   chrome.storage.local.set({ agentMode: agentToggle.checked });
+  agentCanContinue = false;
+  agentContinueStateKey = null;
 });
 
 ragToggle.addEventListener("change", () => {
@@ -938,6 +994,8 @@ agentCancelBtn?.addEventListener("click", () => {
   if (!activeAgentPort) return;
   activeAgentPort.postMessage({ type: "cancel" });
   showAgentBar("Cancelling…");
+  agentCanContinue = false;
+  agentContinueStateKey = null;
 });
 
 confirmOk?.addEventListener("click", () => replyConfirm(true));
