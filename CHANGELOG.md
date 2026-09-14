@@ -14,6 +14,10 @@ All notable changes to the extension. Versions follow the `manifest.json`
   `src/pdf.js` vanilla extractor (literal/hex Tj/TJ, FlateDecode via
   `DecompressionStream`, no dependencies) feeds the existing RAG path with the
   filename as title. Honest fallback for scanned/encrypted PDFs.
+- **Agent recipes, subset (#51)** — three starter recipes (summarize+extract,
+  survey form fields, compare options) as `🤖` chips in the empty state when
+  Agent mode is on. Each is a canned first prompt for the existing agent loop
+  (8-step cap, confirmations unchanged).
 
 ## 0.8.0
 

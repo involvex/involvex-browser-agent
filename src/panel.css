@@ -464,6 +464,10 @@ body {
   border-color: var(--accent);
 }
 
+.chip.recipe {
+  border-style: dashed;
+}
+
 .msg {
   max-width: 92%;
   padding: 10px 12px;

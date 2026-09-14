@@ -53,3 +53,31 @@ export const DEFAULT_ASK_SYSTEM =
 /// Default Agent-mode preamble. Tool documentation is always appended by the worker.
 export const DEFAULT_AGENT_SYSTEM =
   "You are Involvex AI Agent, operating inside a web browser on behalf of the user.";
+
+/// Starter agent recipes (#51, subset). Built-ins only — each is a canned
+/// first prompt executed by the existing agent loop (8-step cap,
+/// confirmations unchanged). Shown as chips in the empty state when Agent
+/// mode is on. Custom recipes are a later step (prompt-library JSON).
+export const AGENT_RECIPES = [
+  {
+    id: "summarize-extract",
+    label: "Summarize + extract tables",
+    hint: "Reads the page, summarizes it, then extracts structured data.",
+    prompt:
+      "Summarize this page in a few bullet points, then extract any tables, forms, or lists as organized markdown.",
+  },
+  {
+    id: "form-fill",
+    label: "Survey form fields",
+    hint: "Lists every form field (label, type, value) so you can say what to fill.",
+    prompt:
+      "Read this page and describe every form field you find (label, type, current value) so I can tell you what to fill in.",
+  },
+  {
+    id: "compare-links",
+    label: "Compare key options",
+    hint: "Lists key links/actions, then compares the top options.",
+    prompt:
+      "List the key links and actions on this page, then briefly compare the most important options — what each offers and when to choose it.",
+  },
+];

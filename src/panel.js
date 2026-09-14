@@ -13,7 +13,7 @@ import {
   deleteSession,
   clearSessions,
 } from "./sessions.js";
-import { DEFAULT_PROMPTS } from "./prompts.js";
+import { DEFAULT_PROMPTS, AGENT_RECIPES } from "./prompts.js";
 import { logError } from "./errorlog.js";
 import { extractPdfText } from "./pdf.js";
 
@@ -910,7 +910,21 @@ inputEl.addEventListener("keydown", (e) => {
 
 messagesEl.addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
-  if (chip?.dataset?.prompt) send(chip.dataset.prompt);
+  if (!chip) return;
+  if (chip.dataset?.prompt) {
+    send(chip.dataset.prompt);
+    return;
+  }
+  if (chip.dataset?.recipe) {
+    const recipe = AGENT_RECIPES.find((r) => r.id === chip.dataset.recipe);
+    if (recipe) {
+      if (!agentToggle.checked) {
+        agentToggle.checked = true;
+        chrome.storage.local.set({ agentMode: true });
+      }
+      send(recipe.prompt);
+    }
+  }
 });
 
 settingsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
@@ -1157,6 +1171,7 @@ async function loadPrompts() {
 }
 
 async function renderQuickChips(container) {
+  container.querySelector(".quick")?.remove();
   const prompts = await loadPrompts();
   const quick = document.createElement("div");
   quick.className = "quick";
@@ -1169,7 +1184,26 @@ async function renderQuickChips(container) {
     btn.textContent = p.label || p.prompt;
     quick.appendChild(btn);
   }
+  // #51: starter agent recipes, shown only when Agent mode is on.
+  if (agentToggle.checked) {
+    for (const r of AGENT_RECIPES) {
+      const btn = document.createElement("button");
+      btn.className = "chip recipe";
+      btn.type = "button";
+      btn.dataset.recipe = r.id;
+      btn.title = r.hint || r.label;
+      btn.textContent = `🤖 ${r.label}`;
+      quick.appendChild(btn);
+    }
+  }
   container.appendChild(quick);
+}
+
+/// Re-renders empty-state chips (e.g. after the Agent toggle flips).
+async function refreshEmptyChips() {
+  if (history.length) return;
+  const empty = messagesEl.querySelector(".empty");
+  if (empty) await renderQuickChips(empty);
 }
 
 async function newChat() {
@@ -1283,6 +1317,7 @@ agentToggle.addEventListener("change", () => {
   chrome.storage.local.set({ agentMode: agentToggle.checked });
   agentCanContinue = false;
   agentContinueStateKey = null;
+  refreshEmptyChips();
 });
 
 ragToggle.addEventListener("change", () => {

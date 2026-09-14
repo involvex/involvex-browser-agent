@@ -127,7 +127,7 @@ Do not schedule into near releases unless a concrete need appears.
 | Multi-language UI (i18n) | Large string surface; prefer response-language setting (#43) first if needed |
 | Image attachment (#47) | Reuse vision path; Ask-only V1; strip dataURLs before session save (M, 4–6d) |
 | PDF summarization (#48) | New `src/pdf.js` regex extractor, no pdf.js dep; reuse RAG + 12k cap (M, 4–7d) |
-| Agent recipes subset (#51) | 3 built-ins via `AGENT_RECIPES`; reuse `runAgent` loop + 8-step cap (M, 3–5d) |
+| Agent recipes subset (#51) | ✅ Shipped — 3 starter `🤖` chips via `AGENT_RECIPES`; custom recipes later |
 
 ### Integrations / infra
 

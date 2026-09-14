@@ -159,7 +159,7 @@ candidate for `ROADMAP.md Later` — not scheduled until capacity appears.
 | 48 | PDF / long-doc summarization flow | 🆕 proposed → Later | M | New `src/pdf.js` regex extractor (no pdf.js dep); ≤10MB; reuse RAG chunks + 12k cap; honest fallback for scanned/encrypted |
 | 49 | Chat folders / tags + bulk delete | 🆕 proposed → Later | M | 50-chat cap exists; organization does not |
 | 50 | Per-provider model params UI (temp/top-p) | 🆕 proposed → Later | M | Custom prompts exist; no sampling control yet |
-| 51 | Agent recipe / workflow templates (subset) | 🆕 proposed → Later | M | 3 built-ins (summarize+extract, form-fill, compare links) via `AGENT_RECIPES` in prompts.js; reuse `runAgent` loop, 8-step cap, confirmations |
+| 51 | Agent recipe / workflow templates (subset) | ✅ done | M | Shipped: 3 built-ins (summarize+extract, form-fill, compare links) via `AGENT_RECIPES` in prompts.js; reuse `runAgent` loop, 8-step cap, confirmations |
 | 52 | Selection bubble polish (mobile-safe) | 🆕 proposed → Later | M | Selection actions exist; no floating bubble |
 | 53 | Backup verify + restore dry-run | 🆕 proposed → Later | M | Gist + file backup exist; no integrity check |
 
@@ -209,7 +209,7 @@ Do not schedule from this section — see “New candidates” above and ROADMAP
 1. #47 Image attachment → Later (M)
 2. #48 PDF summarization → Later (M)
 3. #50 Model params UI → Later (M)
-4. #51 Agent recipes subset → Later (M)
+4. #51 Agent recipes subset → ✅ done (3 built-ins)
 
 ---
 
