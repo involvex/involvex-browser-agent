@@ -407,9 +407,35 @@ async function chatOpenAiCompatible(
     if (typeof m.content === "string" || Array.isArray(m.content)) return m;
     return { ...m, content: String(m.content) };
   });
-  const body = { model, messages: normalized, temperature: 0.3 };
-  const data = await request(url, { headers, body, signal });
-  return (data?.choices?.[0]?.message?.content || "").trim();
+  const attempt = (withTemp) =>
+    request(url, {
+      headers,
+      body: {
+        model,
+        messages: normalized,
+        ...(withTemp ? { temperature: 0.3 } : {}),
+      },
+      signal,
+    });
+  let data;
+  try {
+    data = await attempt(true);
+  } catch (e) {
+    if (
+      /^400\b/.test(String((e && e.message) || "")) &&
+      isTemperatureError(e.message)
+    ) {
+      console.warn(
+        `[involvex] ${url} rejected temperature, retrying without it`,
+      );
+      data = await attempt(false);
+    } else {
+      throw e;
+    }
+  }
+  throwIfPayloadError(data);
+  const { content, reasoning } = extractChoiceText(data?.choices?.[0]);
+  return (content || reasoning || "").trim();
 }
 
 async function chatAnthropic(apiKey, model, messages, signal) {
@@ -476,9 +502,42 @@ export function supportsStreaming(provider) {
   return STREAMING_PROVIDERS.has(provider);
 }
 
+/// Pulls `{ content, reasoning }` out of an OpenAI-style choice object,
+/// covering plain, delta, and reasoning-model shapes
+/// (`reasoning_content` for Qwen/DeepSeek via Kilo/OpenRouter, `reasoning`
+/// for others). Gateways like Kilo's free tier route to reasoning models
+/// that stream thinking with an empty `content`.
+export function extractChoiceText(choice) {
+  const src = choice?.delta || choice?.message || {};
+  const str = (v) => (typeof v === "string" ? v : "");
+  const content = str(src.content);
+  const reasoning =
+    str(src.reasoning_content) ||
+    str(src.reasoning) ||
+    (Array.isArray(src.reasoning_details)
+      ? src.reasoning_details.map((d) => str(d.text) || str(d.content)).join("")
+      : "");
+  return { content, reasoning };
+}
+
+/// Raises when a decoded SSE/JSON payload carries a gateway error object
+/// (some gateways answer 200 + `{ error: ... }` instead of a status code).
+export function throwIfPayloadError(json, status = 200) {
+  const err = json?.error;
+  if (err) {
+    const msg =
+      typeof err === "string"
+        ? err
+        : err.message || JSON.stringify(err).slice(0, 300);
+    throw new Error(`${status} gateway error: ${msg}`.trim());
+  }
+}
+
 /// Parses an SSE byte stream and invokes `onToken` for each text delta.
-/// Returns the number of tokens emitted (0 when the server ignored stream:true).
-async function readOpenAiSse(res, onToken, signal) {
+/// Reasoning deltas accumulate into `sink.reasoning` (not emitted, so they
+/// can't corrupt Agent JSON). Throws on gateway error chunks.
+/// Returns the number of content tokens emitted.
+async function readOpenAiSse(res, onToken, signal, sink = null) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -488,6 +547,15 @@ async function readOpenAiSse(res, onToken, signal) {
       count++;
       onToken(t);
     }
+  };
+  const handleData = (data) => {
+    if (data === "[DONE]") return "done";
+    const json = JSON.parse(data);
+    throwIfPayloadError(json);
+    const { content, reasoning } = extractChoiceText(json.choices?.[0]);
+    if (content) emit(content);
+    else if (reasoning && sink) sink.reasoning += reasoning;
+    return "ok";
   };
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -500,17 +568,11 @@ async function readOpenAiSse(res, onToken, signal) {
       const trimmed = line.trim();
       if (!trimmed.startsWith("data:")) continue;
       const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") return count;
       try {
-        const json = JSON.parse(data);
-        const delta = json.choices?.[0]?.delta?.content;
-        // Some OpenAI-compatible servers send non-stream `message` objects
-        // even when stream:true was requested — accept those too.
-        const msgContent = json.choices?.[0]?.message?.content;
-        if (delta) emit(delta);
-        else if (typeof msgContent === "string" && msgContent) emit(msgContent);
-      } catch (_) {
-        // skip malformed SSE chunks
+        if (handleData(data) === "done") return count;
+      } catch (e) {
+        // Gateway error chunks must surface, malformed ones are skipped.
+        if (e && /gateway error/.test(e.message || "")) throw e;
       }
     }
   }
@@ -520,11 +582,9 @@ async function readOpenAiSse(res, onToken, signal) {
     const data = tail.slice(5).trim();
     if (data && data !== "[DONE]") {
       try {
-        const json = JSON.parse(data);
-        const delta = json.choices?.[0]?.delta?.content;
-        if (delta) emit(delta);
-      } catch (_) {
-        // ignore
+        handleData(data);
+      } catch (e) {
+        if (e && /gateway error/.test(e.message || "")) throw e;
       }
     }
   }
@@ -576,15 +636,34 @@ async function streamOpenAiCompatible(
     ...extraHeaders,
   };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ model, messages, temperature: 0.3, stream: true }),
-    signal,
-  });
+  const post = (withTemp) =>
+    fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages,
+        ...(withTemp ? { temperature: 0.3 } : {}),
+        stream: true,
+      }),
+      signal,
+    });
+  let res = await post(true);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText} ${detail}`.trim());
+    if (res.status === 400 && isTemperatureError(detail)) {
+      // Reasoning models (o-series, gpt-5, some Qwen) reject temperature.
+      console.warn(
+        `[involvex] ${url} rejected temperature, retrying without it`,
+      );
+      res = await post(false);
+      if (!res.ok) {
+        const d2 = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText} ${d2}`.trim());
+      }
+    } else {
+      throw new Error(`${res.status} ${res.statusText} ${detail}`.trim());
+    }
   }
   const contentType = (res.headers?.get?.("content-type") || "").toLowerCase();
   if (
@@ -596,27 +675,38 @@ async function streamOpenAiCompatible(
     const text = await res.text().catch(() => "");
     try {
       const json = JSON.parse(text);
-      const content =
-        json?.choices?.[0]?.message?.content ||
-        json?.choices?.[0]?.delta?.content ||
-        json?.content ||
-        "";
-      if (typeof content === "string" && content) onToken(content);
-      return;
-    } catch (_) {
-      // Not JSON either — fall through to SSE parsing of the raw text.
-      try {
-        const json = JSON.parse(text);
-        void json;
-      } catch (_) {
-        // re-throw a helpful error with a snippet
+      throwIfPayloadError(json, res.status);
+      const { content, reasoning } = extractChoiceText(json.choices?.[0]);
+      const body_text = content || json?.content || "";
+      if (typeof body_text === "string" && body_text) {
+        onToken(body_text);
+        return { reasoning: "" };
       }
+      // Reasoning-only reply (Kilo free-tier routing) — surface it rather
+      // than returning silence.
+      if (reasoning) {
+        onToken(reasoning);
+        return { reasoning: "" };
+      }
+      return { reasoning: "" };
+    } catch (e) {
+      if (e && /gateway error/.test(e.message || "")) throw e;
       throw new Error(
         `[non-sse 200] ${res.status} ${res.statusText} ${text.slice(0, 300).trim()}`,
       );
     }
   }
-  await readOpenAiSse(res, onToken, signal);
+  const sink = { reasoning: "" };
+  await readOpenAiSse(res, onToken, signal, sink);
+  return sink;
+}
+
+/// Reasoning models reject non-default temperatures (400). Detect that case
+/// so callers can retry without the parameter.
+export function isTemperatureError(detail) {
+  return /temperature|unsupported.*(parameter|value)|reasoning/i.test(
+    String(detail || ""),
+  );
 }
 
 async function streamGemini(apiKey, model, messages, signal, onToken) {
@@ -659,9 +749,16 @@ export async function chatStream(settings, messages, onToken) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   let full = "";
+  let reasoningFallback = "";
   const emit = (chunk) => {
     full += chunk;
     onToken(chunk);
+  };
+  // Reasoning-only replies (Kilo free-tier routing etc.) accumulate here;
+  // used as a last-resort answer instead of silence.
+  const runStream = async (promise) => {
+    const sink = await promise;
+    if (sink && sink.reasoning) reasoningFallback += sink.reasoning;
   };
   try {
     switch (provider) {
@@ -675,62 +772,81 @@ export async function chatStream(settings, messages, onToken) {
         );
         break;
       case "openai":
-        await streamOpenAiCompatible(
-          "https://api.openai.com/v1/chat/completions",
-          cfg.apiKey,
-          model,
-          messages,
-          controller.signal,
-          emit,
+        await runStream(
+          streamOpenAiCompatible(
+            "https://api.openai.com/v1/chat/completions",
+            cfg.apiKey,
+            model,
+            messages,
+            controller.signal,
+            emit,
+          ),
         );
         break;
       case "openrouter":
-        await streamOpenAiCompatible(
-          `${baseUrlFor("openrouter", cfg)}/chat/completions`,
-          cfg.apiKey,
-          model,
-          messages,
-          controller.signal,
-          emit,
-          {
-            "HTTP-Referer": "https://involvex.browser",
-            "X-Title": "Involvex AI",
-          },
+        await runStream(
+          streamOpenAiCompatible(
+            `${baseUrlFor("openrouter", cfg)}/chat/completions`,
+            cfg.apiKey,
+            model,
+            messages,
+            controller.signal,
+            emit,
+            {
+              "HTTP-Referer": "https://involvex.browser",
+              "X-Title": "Involvex AI",
+            },
+          ),
         );
         break;
       case "opencode":
-        await streamOpenAiCompatible(
-          `${baseUrlFor("opencode", cfg)}/chat/completions`,
-          cfg.apiKey,
-          model,
-          messages,
-          controller.signal,
-          emit,
+        await runStream(
+          streamOpenAiCompatible(
+            `${baseUrlFor("opencode", cfg)}/chat/completions`,
+            cfg.apiKey,
+            model,
+            messages,
+            controller.signal,
+            emit,
+          ),
         );
         break;
       case "custom":
-        await streamOpenAiCompatible(
-          `${baseUrlFor("custom", cfg)}/chat/completions`,
-          cfg.apiKey,
-          model,
-          messages,
-          controller.signal,
-          emit,
+        await runStream(
+          streamOpenAiCompatible(
+            `${baseUrlFor("custom", cfg)}/chat/completions`,
+            cfg.apiKey,
+            model,
+            messages,
+            controller.signal,
+            emit,
+          ),
         );
         break;
       case "fastvlm":
-        await streamOpenAiCompatible(
-          `${baseUrlFor("fastvlm", cfg)}/chat/completions`,
-          cfg.apiKey,
-          model,
-          messages,
-          controller.signal,
-          emit,
+        await runStream(
+          streamOpenAiCompatible(
+            `${baseUrlFor("fastvlm", cfg)}/chat/completions`,
+            cfg.apiKey,
+            model,
+            messages,
+            controller.signal,
+            emit,
+          ),
         );
         break;
       default:
         full = await chat(settings, messages);
         if (full) onToken(full);
+    }
+    if (!full && reasoningFallback.trim()) {
+      // Reasoning-only reply (Kilo free-tier routing etc.): the model sent
+      // thinking with an empty content field. Surface it instead of silence.
+      console.warn(
+        `[involvex] ${provider}/${model} returned reasoning-only output, using it as the reply`,
+      );
+      full = reasoningFallback.trim();
+      onToken(full);
     }
     if (!full) {
       // Streaming servers that ignore stream:true yield zero SSE tokens

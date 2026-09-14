@@ -513,6 +513,10 @@ function handlePortMessage(m, port) {
       lastMsg.appendChild(actions);
     }
   } else if (m.event === "agent_debug") {
+    logError(
+      `agent/${m.reason || "debug"}`,
+      `${m.provider || ""}/${m.model || ""}: ${(m.raw || "").slice(0, 300)}`,
+    );
     const details = document.createElement("details");
     details.className = "agent-debug";
     const summary = document.createElement("summary");
@@ -587,7 +591,23 @@ async function sendAsk(text) {
     } else {
       answer = await chat(s, prep.messages);
     }
-    finishAssistant(answer, answer);
+    if (!answer || !answer.trim()) {
+      // Never swallow silence: empty 200s (e.g. reasoning-only gateway
+      // replies) become a visible error + log entry instead of an empty bubble.
+      const msg = `Empty reply from ${s.provider}/${s[s.provider]?.model || "default"}. The model may need a different model id (try a non-reasoning model), or check Settings → Error log.`;
+      logError(
+        "ask/empty",
+        `${s.provider}/${s[s.provider]?.model || "?"}: empty reply`,
+      );
+      if (streamEl) {
+        streamEl.remove();
+        streamEl = null;
+        streamText = "";
+      }
+      addMessage("assistant", `Error: ${msg}`, "error");
+    } else {
+      finishAssistant(answer, answer);
+    }
   } catch (e) {
     clearStatus();
     const errText = String((e && e.message) || e);

@@ -27,11 +27,11 @@ check(
 );
 check(
   "providers: readOpenAiSse returns token count",
-  providers.includes("Returns the number of tokens emitted"),
+  providers.includes("Returns the number of content tokens emitted"),
 );
 check(
-  "providers: accepts message.content fallback in SSE",
-  providers.includes("choices?.[0]?.message?.content"),
+  "providers: accepts message-shaped choices in SSE",
+  providers.includes("choice?.delta || choice?.message"),
 );
 check(
   "bridge: SSE method present",
@@ -85,6 +85,64 @@ const out = await simulateNonSseJsonBranch();
 check(
   "behavioral: plain-JSON fallback emits content",
   out.includes('"action":"finish"'),
+);
+
+// Behavioral: Kilo-style reasoning-model payloads via exported helpers.
+const { extractChoiceText, throwIfPayloadError, isTemperatureError } =
+  await import("../src/providers.js");
+
+const qwenDelta = {
+  delta: { content: "", reasoning_content: "Let me think… Paris." },
+};
+const q = extractChoiceText(qwenDelta);
+check(
+  "behavioral: reasoning_content extracted, content empty",
+  q.content === "" && q.reasoning === "Let me think… Paris.",
+);
+
+const plainDelta = { delta: { content: "Hello" } };
+check(
+  "behavioral: plain delta still wins",
+  extractChoiceText(plainDelta).content === "Hello",
+);
+
+const detailsShape = {
+  delta: {
+    content: "",
+    reasoning_details: [{ text: "step one " }, { text: "step two" }],
+  },
+};
+check(
+  "behavioral: reasoning_details joined",
+  extractChoiceText(detailsShape).reasoning === "step one step two",
+);
+
+let threw = false;
+try {
+  throwIfPayloadError({ error: { message: "insufficient credits" } }, 200);
+} catch (e) {
+  threw = /gateway error.*insufficient credits/.test(e.message);
+}
+check("behavioral: 200+error payload throws", threw);
+
+check(
+  "behavioral: temperature rejection detected",
+  isTemperatureError("400 Unsupported parameter: 'temperature' for o4-mini") &&
+    !isTemperatureError("500 internal error"),
+);
+
+// Static: new resilience paths exist.
+check(
+  "providers: reasoning sink threading",
+  providers.includes("sink.reasoning") && providers.includes("runStream("),
+);
+check(
+  "providers: temperature retry without param",
+  providers.includes("retrying without it"),
+);
+check(
+  "providers: reasoning-only fallback message",
+  providers.includes("reasoning-only output"),
 );
 
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
