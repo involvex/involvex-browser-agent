@@ -361,15 +361,20 @@ async function waitIfPaused(port) {
   }
 }
 
-async function agentModelReply(settings, convo, port) {
+async function agentModelReply(settings, convo, port, out = null) {
   if (supportsStreaming(settings.provider)) {
     port.postMessage({ event: "stream_start" });
-    const raw = await chatStream(settings, convo, (chunk) => {
-      port.postMessage({ event: "token", text: chunk });
-    });
+    const raw = await chatStream(
+      settings,
+      convo,
+      (chunk) => {
+        port.postMessage({ event: "token", text: chunk });
+      },
+      out,
+    );
     return raw;
   }
-  return chat(settings, convo);
+  return chat(settings, convo, out);
 }
 
 function extractJsonFromFenced(raw) {
@@ -529,11 +534,28 @@ const AGENT_FORMAT_NUDGE =
   `wait_for_element, scroll_to_element, extract_data, finish.`;
 
 /// Handles one model reply: empty check, parse, one retry with a format nudge.
-/// Returns { parsed, raw } or { fatal, raw, reason } when the step must abort.
+/// Forwards per-reply `{ usage, reasoning }` to the panel via `usage` events.
+/// Returns `{ parsed, raw, reasoning, fallbackToReasoning }` or
+/// `{ fatal, raw, reason, ... }` when the step must abort.
 async function parseAgentStep(settings, convo, port, provider, model) {
-  let raw = await agentModelReply(settings, convo, port);
+  const meta = { reasoning: "", usage: null, fallbackToReasoning: false };
+  const reply = async () => {
+    const m = {};
+    const raw = await agentModelReply(settings, convo, port, m);
+    if (m.usage) {
+      meta.usage = meta.usage || { prompt: 0, completion: 0, total: 0 };
+      meta.usage.prompt += m.usage.prompt || 0;
+      meta.usage.completion += m.usage.completion || 0;
+      meta.usage.total += m.usage.total || 0;
+      port.postMessage({ event: "usage", usage: m.usage });
+    }
+    if (m.reasoning) meta.reasoning += m.reasoning;
+    if (m.fallbackToReasoning) meta.fallbackToReasoning = true;
+    return raw;
+  };
+  let raw = await reply();
   let parsed = parseAction(raw);
-  if (parsed) return { parsed, raw };
+  if (parsed) return { parsed, raw, ...meta };
   const reason = parseFailureReason(raw);
   if (reason === "empty") {
     port.postMessage({
@@ -543,16 +565,16 @@ async function parseAgentStep(settings, convo, port, provider, model) {
       provider,
       model,
     });
-    return { fatal: true, raw, reason };
+    return { fatal: true, raw, reason, ...meta };
   }
   // One retry with a corrective nudge — caller continues without consuming
   // an extra MAX_AGENT_STEPS slot for the retry itself.
   port.postMessage({ event: "status", text: "Retrying with format reminder…" });
   convo.push({ role: "user", content: AGENT_FORMAT_NUDGE });
-  raw = await agentModelReply(settings, convo, port);
+  raw = await reply();
   parsed = parseAction(raw);
-  if (parsed) return { parsed, raw };
-  return { fatal: true, raw, reason: parseFailureReason(raw) };
+  if (parsed) return { parsed, raw, ...meta };
+  return { fatal: true, raw, reason: parseFailureReason(raw), ...meta };
 }
 
 const VISION_MAX_EDGE = 1280;
@@ -797,6 +819,8 @@ async function runAgent(
         event: "assistant",
         text: parsed.args?.answer || "Done.",
         raw: lastRaw,
+        reasoning: stepRes.reasoning || "",
+        fallbackToReasoning: !!stepRes.fallbackToReasoning,
       });
       port.postMessage({ event: "done" });
       return;
@@ -980,6 +1004,8 @@ async function continueAgent(port, stateKey, userText) {
         event: "assistant",
         text: parsed.args?.answer || "Done.",
         raw: lastRaw,
+        reasoning: stepRes.reasoning || "",
+        fallbackToReasoning: !!stepRes.fallbackToReasoning,
       });
       port.postMessage({ event: "done" });
       return;

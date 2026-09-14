@@ -4,6 +4,7 @@ import {
   chat,
   chatStream,
   supportsStreaming,
+  getModelPricing,
 } from "./providers.js";
 import {
   saveSession,
@@ -69,6 +70,88 @@ let pendingConfirmId = null;
 let agentPolicyNote = "";
 let agentCanContinue = false;
 let agentContinueStateKey = null;
+let sessionUsage = { prompt: 0, completion: 0, total: 0, cost: 0 };
+let pricingCacheKey = "";
+let pricingCacheVal = undefined;
+
+function fmtTokens(n) {
+  n = Math.round(n || 0);
+  if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+function resetUsageMeter() {
+  sessionUsage = { prompt: 0, completion: 0, total: 0, cost: 0 };
+  updateUsageMeter();
+}
+
+function updateUsageMeter() {
+  const meter = document.getElementById("usageMeter");
+  if (!meter) return;
+  const { prompt, completion, total, cost } = sessionUsage;
+  if (!total && !cost) {
+    meter.textContent = "";
+    meter.hidden = true;
+    return;
+  }
+  meter.hidden = false;
+  let text = `↑${fmtTokens(prompt)} ↓${fmtTokens(completion)}`;
+  if (cost > 0)
+    text += ` · ~$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`;
+  meter.textContent = text;
+  meter.title = `Session tokens — in: ${prompt}, out: ${completion}, total: ${total}${cost > 0 ? `, est. cost $${cost.toFixed(4)}` : ""}`;
+}
+
+/// Adds `usage` (+ optional pricing-derived cost) to the session meter.
+async function trackUsage(settings, usage) {
+  if (!usage || (!usage.prompt && !usage.completion && !usage.total)) return;
+  sessionUsage.prompt += usage.prompt || 0;
+  sessionUsage.completion += usage.completion || 0;
+  sessionUsage.total += usage.total || 0;
+  try {
+    const cfg = settings[settings.provider] || {};
+    const key = `${settings.provider}|${cfg.model || ""}`;
+    if (pricingCacheKey !== key) {
+      pricingCacheKey = key;
+      pricingCacheVal = await getModelPricing(settings);
+    }
+    if (pricingCacheVal) {
+      sessionUsage.cost +=
+        (usage.prompt || 0) * pricingCacheVal.prompt +
+        (usage.completion || 0) * pricingCacheVal.completion;
+    }
+  } catch (_) {
+    // pricing is best-effort; tokens still tracked
+  }
+  updateUsageMeter();
+}
+
+function renderThinkingBlock(reasoning) {
+  const details = document.createElement("details");
+  details.className = "thinking-toggle";
+  const summary = document.createElement("summary");
+  summary.textContent = "Thought — click to expand";
+  details.appendChild(summary);
+  const pre = document.createElement("pre");
+  pre.className = "thinking-text";
+  pre.textContent = reasoning;
+  details.appendChild(pre);
+  return details;
+}
+
+/// True when `reasoning` is worth showing separately from `answer`
+/// (skips duplicates when the answer IS the reasoning fallback).
+function shouldShowThinking(reasoning, answer) {
+  if (!reasoning || !reasoning.trim()) return false;
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const r = norm(reasoning);
+  const a = norm(answer);
+  if (!r || !a) return false;
+  if (r === a) return false;
+  if (a.includes(r.slice(0, 120)) && r.length < 400) return false;
+  return true;
+}
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
@@ -410,7 +493,7 @@ function makeMessageId(role) {
   return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function finishAssistant(text, raw) {
+function finishAssistant(text, raw, reasoning) {
   clearStatus();
   let el;
   if (streamEl) {
@@ -421,6 +504,9 @@ function finishAssistant(text, raw) {
     streamText = "";
   } else {
     el = addMessage("assistant", text);
+  }
+  if (shouldShowThinking(reasoning, text)) {
+    el.insertBefore(renderThinkingBlock(reasoning), el.firstChild);
   }
   const id = makeMessageId("msg");
   history.push({ role: "assistant", content: text, id, raw: raw || text });
@@ -479,7 +565,15 @@ function handlePortMessage(m, port) {
     showConfirm(m.id, m.detail);
     showAgentBar("Waiting for confirmation…");
   } else if (m.event === "assistant") {
-    finishAssistant(m.text, m.raw);
+    finishAssistant(m.text, m.raw, m.reasoning);
+  } else if (m.event === "usage") {
+    trackUsage(
+      {
+        provider: providerSelect.value,
+        [providerSelect.value]: { model: modelSelect.value },
+      },
+      m.usage,
+    );
   } else if (m.event === "error") {
     clearStatus();
     hideConfirm();
@@ -574,6 +668,7 @@ async function sendAsk(text) {
     }
     // ... rest of function
     let answer;
+    const meta = {};
     if (supportsStreaming(s.provider)) {
       clearStatus();
       if (emptyEl && emptyEl.parentNode) emptyEl.remove();
@@ -581,16 +676,22 @@ async function sendAsk(text) {
       streamEl.className = "msg assistant streaming";
       messagesEl.appendChild(streamEl);
       scrollToBottom();
-      answer = await chatStream(s, prep.messages, (chunk) => {
-        streamText += chunk || "";
-        if (streamEl) {
-          streamEl.textContent = streamText;
-          scrollToBottom();
-        }
-      });
+      answer = await chatStream(
+        s,
+        prep.messages,
+        (chunk) => {
+          streamText += chunk || "";
+          if (streamEl) {
+            streamEl.textContent = streamText;
+            scrollToBottom();
+          }
+        },
+        meta,
+      );
     } else {
-      answer = await chat(s, prep.messages);
+      answer = await chat(s, prep.messages, meta);
     }
+    await trackUsage(s, meta.usage);
     if (!answer || !answer.trim()) {
       // Never swallow silence: empty 200s (e.g. reasoning-only gateway
       // replies) become a visible error + log entry instead of an empty bubble.
@@ -606,7 +707,7 @@ async function sendAsk(text) {
       }
       addMessage("assistant", `Error: ${msg}`, "error");
     } else {
-      finishAssistant(answer, answer);
+      finishAssistant(answer, answer, meta.reasoning);
     }
   } catch (e) {
     clearStatus();
@@ -828,6 +929,7 @@ async function loadSession(id) {
   const s = await getSession(id);
   if (!s) return;
   history.length = 0;
+  resetUsageMeter();
   messagesEl.innerHTML = "";
   currentSessionId = s.id;
   sessionCreatedAt = s.createdAt;
@@ -999,6 +1101,7 @@ async function newChat() {
   sessionCreatedAt = null;
   agentCanContinue = false;
   agentContinueStateKey = null;
+  resetUsageMeter();
   messagesEl.innerHTML = "";
   const div = document.createElement("div");
   div.className = "empty";

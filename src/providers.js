@@ -174,7 +174,7 @@ function baseUrlFor(provider, cfg) {
 /// Sends a chat completion to the configured provider and returns plain text.
 ///
 /// `messages` is a list of `{ role: "system"|"user"|"assistant", content }`.
-export async function chat(settings, messages) {
+export async function chat(settings, messages, out = null) {
   const provider = settings.provider;
   const info = PROVIDERS[provider];
   if (!info) {
@@ -189,7 +189,13 @@ export async function chat(settings, messages) {
   try {
     switch (provider) {
       case "gemini":
-        return await chatGemini(cfg.apiKey, model, messages, controller.signal);
+        return await chatGemini(
+          cfg.apiKey,
+          model,
+          messages,
+          controller.signal,
+          out,
+        );
       case "openai":
         return await chatOpenAiCompatible(
           "https://api.openai.com/v1/chat/completions",
@@ -197,6 +203,8 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          {},
+          out,
         );
       case "openrouter":
         return await chatOpenAiCompatible(
@@ -209,6 +217,7 @@ export async function chat(settings, messages) {
             "HTTP-Referer": "https://involvex.browser",
             "X-Title": "Involvex AI",
           },
+          out,
         );
       case "opencode":
         return await chatOpenAiCompatible(
@@ -217,6 +226,8 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          {},
+          out,
         );
       case "custom":
         return await chatOpenAiCompatible(
@@ -225,6 +236,8 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          {},
+          out,
         );
       case "anthropic":
         return await chatAnthropic(
@@ -232,6 +245,7 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          out,
         );
       case "ollama":
         return await chatOllama(
@@ -239,6 +253,7 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          out,
         );
       case "fastvlm":
         return await chatOpenAiCompatible(
@@ -247,6 +262,8 @@ export async function chat(settings, messages) {
           model,
           messages,
           controller.signal,
+          {},
+          out,
         );
       default:
         if (info.defaultBaseUrl && provider !== "ollama") {
@@ -256,6 +273,8 @@ export async function chat(settings, messages) {
             model,
             messages,
             controller.signal,
+            {},
+            out,
           );
         }
         throw new Error(
@@ -348,6 +367,68 @@ export async function listModels(settings) {
   }
 }
 
+/// Per-token pricing cache: `${baseUrl}|${model}` -> { prompt, completion }.
+const pricingCache = new Map();
+
+/// Returns per-token `{ prompt, completion }` prices for OpenAI-compatible
+/// providers that publish pricing on their `/models` endpoint
+/// (Kilo gateway, OpenRouter; per-token decimal strings like "0.000003").
+/// Returns null when unavailable — callers then show tokens only.
+export async function getModelPricing(settings) {
+  const provider = settings.provider;
+  const cfg = settings[provider] || {};
+  const model = cfg.model || PROVIDERS[provider]?.defaultModel;
+  if (!model) return null;
+  let base = "";
+  let headers = {};
+  if (provider === "openrouter") {
+    base = baseUrlFor("openrouter", cfg);
+  } else if (provider === "opencode") {
+    base = baseUrlFor("opencode", cfg);
+    if (cfg.apiKey) headers = { Authorization: `Bearer ${cfg.apiKey}` };
+  } else if (provider === "custom" || provider === "fastvlm") {
+    base = baseUrlFor(provider, cfg);
+    if (cfg.apiKey) headers = { Authorization: `Bearer ${cfg.apiKey}` };
+  } else if (provider === "openai") {
+    return null; // OpenAI /models carries no pricing; skip the request.
+  } else {
+    return null;
+  }
+  if (!base) return null;
+  const key = `${base}|${model}`;
+  if (pricingCache.has(key)) return pricingCache.get(key);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let entry = null;
+    try {
+      const data = await request(`${base}/models`, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+      const list = data?.data || [];
+      entry = list.find((m) => m.id === model || m.name === model) || null;
+    } finally {
+      clearTimeout(timer);
+    }
+    const p = entry?.pricing;
+    const price = (v) => {
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return isFinite(n) && n >= 0 ? n : null;
+    };
+    const out =
+      p && price(p.prompt) != null && price(p.completion) != null
+        ? { prompt: price(p.prompt), completion: price(p.completion) }
+        : null;
+    pricingCache.set(key, out);
+    return out;
+  } catch (_) {
+    pricingCache.set(key, null);
+    return null;
+  }
+}
+
 function splitSystem(messages) {
   const system = messages
     .filter((m) => m.role === "system")
@@ -357,7 +438,7 @@ function splitSystem(messages) {
   return { system, rest };
 }
 
-async function chatGemini(apiKey, model, messages, signal) {
+async function chatGemini(apiKey, model, messages, signal, out = null) {
   if (!apiKey) throw new Error("Gemini API key not set (open Options).");
   const { system, rest } = splitSystem(messages);
   const contents = rest.map((m) => {
@@ -386,6 +467,7 @@ async function chatGemini(apiKey, model, messages, signal) {
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const data = await request(url, { body, signal });
+  collectUsage(out, data?.usageMetadata);
   const parts = data?.candidates?.[0]?.content?.parts || [];
   return parts
     .map((p) => p.text || "")
@@ -400,6 +482,7 @@ async function chatOpenAiCompatible(
   messages,
   signal,
   extraHeaders = {},
+  out = null,
 ) {
   const headers = { ...extraHeaders };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -434,11 +517,14 @@ async function chatOpenAiCompatible(
     }
   }
   throwIfPayloadError(data);
+  collectUsage(out, data?.usage);
   const { content, reasoning } = extractChoiceText(data?.choices?.[0]);
+  if (out && reasoning) out.reasoning = (out.reasoning || "") + reasoning;
+  if (out && !content && reasoning) out.fallbackToReasoning = true;
   return (content || reasoning || "").trim();
 }
 
-async function chatAnthropic(apiKey, model, messages, signal) {
+async function chatAnthropic(apiKey, model, messages, signal, out = null) {
   if (!apiKey) throw new Error("Anthropic API key not set (open Options).");
   const { system, rest } = splitSystem(messages);
   const body = {
@@ -456,6 +542,7 @@ async function chatAnthropic(apiKey, model, messages, signal) {
     body,
     signal,
   });
+  collectUsage(out, data?.usage);
   const blocks = data?.content || [];
   return blocks
     .map((b) => (b.type === "text" ? b.text : ""))
@@ -463,7 +550,7 @@ async function chatAnthropic(apiKey, model, messages, signal) {
     .trim();
 }
 
-async function chatOllama(base, model, messages, signal) {
+async function chatOllama(base, model, messages, signal, out = null) {
   const ollamaMsgs = messages
     .filter((m) => m.role !== "system")
     .map((m) => {
@@ -486,6 +573,10 @@ async function chatOllama(base, model, messages, signal) {
   const body = { model, messages: ollamaMsgs, stream: false };
   if (system) body.system = system;
   const data = await request(`${base}/api/chat`, { body, signal });
+  collectUsage(out, {
+    prompt_eval_count: data?.prompt_eval_count,
+    eval_count: data?.eval_count,
+  });
   return (data?.message?.content || "").trim();
 }
 
@@ -520,6 +611,39 @@ export function extractChoiceText(choice) {
   return { content, reasoning };
 }
 
+/// Normalizes token-usage shapes to `{ prompt, completion, total }`.
+/// Covers OpenAI (`prompt_tokens`), Anthropic (`input_tokens`), Gemini
+/// (`promptTokenCount`), and Ollama (`prompt_eval_count`).
+export function normalizeUsage(u) {
+  if (!u || typeof u !== "object") return null;
+  const num = (v) => (typeof v === "number" && isFinite(v) ? v : 0);
+  const prompt =
+    num(u.prompt_tokens) ||
+    num(u.input_tokens) ||
+    num(u.promptTokenCount) ||
+    num(u.prompt_eval_count);
+  const completion =
+    num(u.completion_tokens) ||
+    num(u.output_tokens) ||
+    num(u.candidatesTokenCount) ||
+    num(u.eval_count);
+  const total =
+    num(u.total_tokens) || num(u.totalTokens) || prompt + completion;
+  if (!prompt && !completion && !total) return null;
+  return { prompt, completion, total };
+}
+
+/// Merges a usage payload into an `out` collector (`chat`/`chatStream`).
+function collectUsage(out, usage) {
+  if (!out) return;
+  const n = normalizeUsage(usage);
+  if (!n) return;
+  out.usage = out.usage || { prompt: 0, completion: 0, total: 0 };
+  out.usage.prompt += n.prompt;
+  out.usage.completion += n.completion;
+  out.usage.total += n.total;
+}
+
 /// Raises when a decoded SSE/JSON payload carries a gateway error object
 /// (some gateways answer 200 + `{ error: ... }` instead of a status code).
 export function throwIfPayloadError(json, status = 200) {
@@ -552,6 +676,15 @@ async function readOpenAiSse(res, onToken, signal, sink = null) {
     if (data === "[DONE]") return "done";
     const json = JSON.parse(data);
     throwIfPayloadError(json);
+    if (json.usage && sink) {
+      sink.usage = sink.usage || { prompt: 0, completion: 0, total: 0 };
+      const n = normalizeUsage(json.usage);
+      if (n) {
+        sink.usage.prompt += n.prompt;
+        sink.usage.completion += n.completion;
+        sink.usage.total += n.total;
+      }
+    }
     const { content, reasoning } = extractChoiceText(json.choices?.[0]);
     if (content) emit(content);
     else if (reasoning && sink) sink.reasoning += reasoning;
@@ -630,6 +763,7 @@ async function streamOpenAiCompatible(
   signal,
   onToken,
   extraHeaders = {},
+  out = null,
 ) {
   const headers = {
     "Content-Type": "application/json",
@@ -645,6 +779,8 @@ async function streamOpenAiCompatible(
         messages,
         ...(withTemp ? { temperature: 0.3 } : {}),
         stream: true,
+        // Ask for token usage in the terminal chunk (OpenAI, Kilo, OpenRouter).
+        stream_options: { include_usage: true },
       }),
       signal,
     });
@@ -676,19 +812,25 @@ async function streamOpenAiCompatible(
     try {
       const json = JSON.parse(text);
       throwIfPayloadError(json, res.status);
+      collectUsage(out, json.usage);
       const { content, reasoning } = extractChoiceText(json.choices?.[0]);
       const body_text = content || json?.content || "";
       if (typeof body_text === "string" && body_text) {
         onToken(body_text);
-        return { reasoning: "" };
+        if (out && reasoning) out.reasoning = (out.reasoning || "") + reasoning;
+        return out || { reasoning: "" };
       }
       // Reasoning-only reply (Kilo free-tier routing) — surface it rather
       // than returning silence.
       if (reasoning) {
         onToken(reasoning);
-        return { reasoning: "" };
+        if (out) {
+          out.reasoning = (out.reasoning || "") + reasoning;
+          out.fallbackToReasoning = true;
+        }
+        return out || { reasoning: "", fallbackToReasoning: true };
       }
-      return { reasoning: "" };
+      return out || { reasoning: "" };
     } catch (e) {
       if (e && /gateway error/.test(e.message || "")) throw e;
       throw new Error(
@@ -696,8 +838,15 @@ async function streamOpenAiCompatible(
       );
     }
   }
-  const sink = { reasoning: "" };
+  // `out` doubles as the SSE sink: reasoning deltas and usage accumulate
+  // on it directly, so callers read one object for both stream and JSON paths.
+  const sink = out || { reasoning: "" };
+  sink.reasoning = sink.reasoning || "";
   await readOpenAiSse(res, onToken, signal, sink);
+  if (out && sink !== out) {
+    out.reasoning = (out.reasoning || "") + (sink.reasoning || "");
+    collectUsage(out, sink.usage);
+  }
   return sink;
 }
 
@@ -742,23 +891,40 @@ async function streamGemini(apiKey, model, messages, signal, onToken) {
 }
 
 /// Like `chat`, but calls `onToken(chunk)` as text arrives. Returns the full reply.
-export async function chatStream(settings, messages, onToken) {
+///
+/// Optional `out` collects side-channel data without polluting the answer:
+/// `out.reasoning` (model thinking, never streamed as content),
+/// `out.usage` (`{ prompt, completion, total }` when the server reports it),
+/// `out.fallbackToReasoning` (true when the reply IS reasoning because
+/// content was empty).
+export async function chatStream(settings, messages, onToken, out = null) {
   const provider = settings.provider;
   const cfg = settings[provider] || {};
   const model = cfg.model || PROVIDERS[provider]?.defaultModel;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   let full = "";
-  let reasoningFallback = "";
+  const streamOut = { reasoning: "", usage: null };
   const emit = (chunk) => {
     full += chunk;
     onToken(chunk);
   };
-  // Reasoning-only replies (Kilo free-tier routing etc.) accumulate here;
-  // used as a last-resort answer instead of silence.
+  // Reasoning-only replies (Kilo free-tier routing etc.) accumulate on
+  // streamOut; used as a last-resort answer instead of silence.
   const runStream = async (promise) => {
     const sink = await promise;
-    if (sink && sink.reasoning) reasoningFallback += sink.reasoning;
+    if (sink && sink.reasoning) streamOut.reasoning += sink.reasoning;
+    if (sink && sink.usage) {
+      streamOut.usage = streamOut.usage || {
+        prompt: 0,
+        completion: 0,
+        total: 0,
+      };
+      streamOut.usage.prompt += sink.usage.prompt || 0;
+      streamOut.usage.completion += sink.usage.completion || 0;
+      streamOut.usage.total += sink.usage.total || 0;
+    }
+    if (sink && sink.fallbackToReasoning) streamOut.fallbackToReasoning = true;
   };
   try {
     switch (provider) {
@@ -836,16 +1002,28 @@ export async function chatStream(settings, messages, onToken) {
         );
         break;
       default:
-        full = await chat(settings, messages);
+        // Non-streaming providers fill streamOut; merged into `out` below.
+        full = await chat(settings, messages, streamOut);
         if (full) onToken(full);
     }
-    if (!full && reasoningFallback.trim()) {
+    const reasoning = streamOut.reasoning.trim();
+    if (out) {
+      if (reasoning) out.reasoning = (out.reasoning || "") + reasoning;
+      if (streamOut.usage) {
+        out.usage = out.usage || { prompt: 0, completion: 0, total: 0 };
+        out.usage.prompt += streamOut.usage.prompt || 0;
+        out.usage.completion += streamOut.usage.completion || 0;
+        out.usage.total += streamOut.usage.total || 0;
+      }
+    }
+    if (!full && reasoning) {
       // Reasoning-only reply (Kilo free-tier routing etc.): the model sent
       // thinking with an empty content field. Surface it instead of silence.
       console.warn(
         `[involvex] ${provider}/${model} returned reasoning-only output, using it as the reply`,
       );
-      full = reasoningFallback.trim();
+      full = reasoning;
+      if (out) out.fallbackToReasoning = true;
       onToken(full);
     }
     if (!full) {
@@ -855,7 +1033,19 @@ export async function chatStream(settings, messages, onToken) {
       console.warn(
         `[involvex] chatStream got 0 tokens for ${provider}, retrying non-stream chat()`,
       );
-      full = await chat(settings, messages);
+      const retryOut = {};
+      full = await chat(settings, messages, retryOut);
+      if (retryOut.reasoning && out) {
+        out.reasoning = (out.reasoning || "") + retryOut.reasoning;
+        if (!full && retryOut.fallbackToReasoning)
+          out.fallbackToReasoning = true;
+      }
+      if (retryOut.usage && out) {
+        out.usage = out.usage || { prompt: 0, completion: 0, total: 0 };
+        out.usage.prompt += retryOut.usage.prompt || 0;
+        out.usage.completion += retryOut.usage.completion || 0;
+        out.usage.total += retryOut.usage.total || 0;
+      }
       if (full) onToken(full);
     }
     return full.trim();
