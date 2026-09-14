@@ -13,6 +13,7 @@ import {
   clearSessions,
 } from "./sessions.js";
 import { DEFAULT_PROMPTS } from "./prompts.js";
+import { logError } from "./errorlog.js";
 
 const messagesEl = document.getElementById("messages");
 const emptyEl = document.getElementById("empty");
@@ -35,6 +36,7 @@ const providerLine = document.getElementById("providerLine");
 const providerSelect = document.getElementById("providerSelect");
 const modelSelect = document.getElementById("modelSelect");
 const ragToggle = document.getElementById("ragToggle");
+const contextSelect = document.getElementById("contextSection");
 const visionToggle = document.getElementById("visionToggle");
 const visionWrap = document.getElementById("visionWrap");
 const agentBar = document.getElementById("agentBar");
@@ -482,6 +484,7 @@ function handlePortMessage(m, port) {
     clearStatus();
     hideConfirm();
     addMessage("assistant", `Error: ${m.text}`, "error");
+    logError("agent", m.text);
   } else if (m.event === "done") {
     clearStatus();
     hideConfirm();
@@ -535,9 +538,11 @@ async function sendAsk(text) {
       tabId: targetTabId,
       vision: visionToggle.checked,
       rag: ragToggle.checked,
+      contextSection: contextSelect?.value || "full",
     });
     if (!prep?.ok) {
       const errText = prep?.error || "Could not prepare request";
+      logError("ask/prepare", errText);
       const el = addMessage("assistant", `Error: ${errText}`, "error");
       if (prep?.raw) {
         el.appendChild(renderRawBlock(prep.raw, "error-raw"));
@@ -586,6 +591,7 @@ async function sendAsk(text) {
   } catch (e) {
     clearStatus();
     const errText = String((e && e.message) || e);
+    logError("ask", errText);
     addMessage("assistant", `Error: ${errText}`, "error");
   } finally {
     // Cache page text from response for future asks on this tab
@@ -661,6 +667,7 @@ function send(text, opts = {}) {
     history: history.slice(0, -1),
     vision: visionToggle.checked,
     rag: ragToggle.checked,
+    contextSection: contextSelect?.value || "full",
   });
 }
 
@@ -1007,9 +1014,14 @@ ragToggle.addEventListener("change", () => {
   chrome.storage.local.set({ ragMode: ragToggle.checked });
 });
 
-contextSection.addEventListener("change", () => {
-  const section = contextSection.value;
-  chrome.storage.local.set({ contextSection });
+contextSelect?.addEventListener("change", () => {
+  const section = contextSelect.value;
+  chrome.storage.local.set({ contextSection: section });
+  try {
+    localStorage.setItem("involvex-context-section", section);
+  } catch (_) {
+    // storage blocked — chrome.storage is the source of truth anyway
+  }
   // Update char count display
   updateContextCharCount(section);
 });
@@ -1212,6 +1224,7 @@ async function init() {
   agentToggle.checked = !!agentMode;
   ragToggle.checked = ragMode !== false;
   visionToggle.checked = !!visionMode;
+  await loadContextSection();
   await applyAgentSitePolicy();
   await refreshHeader();
   loadPinnedIds();
@@ -1283,6 +1296,13 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.ragMode) {
     ragToggle.checked = changes.ragMode.newValue !== false;
   }
+  if (changes.contextSection && contextSelect) {
+    const v = changes.contextSection.newValue;
+    if (v && VALID_CONTEXT_SECTIONS.includes(v)) {
+      contextSelect.value = v;
+      updateContextCharCount(v);
+    }
+  }
 });
 
 window
@@ -1312,12 +1332,35 @@ function updateContextCharCount(section) {
   charCountEl.textContent = `${estimatedChars} / ${maxChars} chars`;
 }
 
-function loadContextSection() {
-  const saved = localStorage.getItem("involvex-context-section");
-  const validSections = ["full", "rag", "selection", "header", "summary"];
-  const savedSection = saved && validSections.includes(saved) ? saved : "full";
-  contextSectionEl.value = savedSection;
-  updateContextCharCount(savedSection);
+const VALID_CONTEXT_SECTIONS = [
+  "full",
+  "rag",
+  "selection",
+  "header",
+  "summary",
+];
+
+async function loadContextSection() {
+  if (!contextSelect) return "full";
+  let saved = null;
+  try {
+    saved = localStorage.getItem("involvex-context-section");
+  } catch (_) {
+    // ignore — fall through to chrome.storage
+  }
+  if (!saved || !VALID_CONTEXT_SECTIONS.includes(saved)) {
+    try {
+      const stored = await chrome.storage.local.get("contextSection");
+      saved = stored.contextSection;
+    } catch (_) {
+      saved = null;
+    }
+  }
+  const section =
+    saved && VALID_CONTEXT_SECTIONS.includes(saved) ? saved : "full";
+  contextSelect.value = section;
+  updateContextCharCount(section);
+  return section;
 }
 
 async function validateTargetTab(tabId) {

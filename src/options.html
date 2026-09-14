@@ -402,6 +402,21 @@
         />
         <span id="fullBackupStatus" class="status"></span>
       </div>
+
+      <hr class="sep" />
+
+      <h1>Error log</h1>
+      <p class="sub">
+        Recent errors from chat and agent runs (newest first, max 50). Errors
+        also appear inline in the chat. Use this to diagnose provider or
+        connection problems.
+      </p>
+      <ul id="errorLogList" class="ext-list"></ul>
+      <div class="actions">
+        <button id="errorLogRefresh" type="button">Refresh</button>
+        <button id="errorLogClear" type="button">Clear log</button>
+        <span id="errorLogStatus" class="status"></span>
+      </div>
     </div>
     <script src="options.js" type="module"></script>
   </body>

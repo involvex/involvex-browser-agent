@@ -10,6 +10,18 @@ import { buildPageContext } from "./rag.js";
 import { DEFAULT_ASK_SYSTEM, DEFAULT_AGENT_SYSTEM } from "./prompts.js";
 
 const MAX_PAGE_CHARS = 12000;
+/// Per-section extraction caps (mirrors the panel Context dropdown).
+const CONTEXT_LIMITS = {
+  full: 12000,
+  rag: 12000,
+  summary: 3000,
+  header: 2000,
+  selection: 500,
+};
+
+function resolveMaxChars(section) {
+  return CONTEXT_LIMITS[section] || MAX_PAGE_CHARS;
+}
 const MAX_AGENT_STEPS = 8;
 const PANEL_URL = "src/panel.html";
 
@@ -284,10 +296,10 @@ async function runInPage(tabId, func, args = []) {
   return res?.result;
 }
 
-async function execTool(tab, action, args) {
+async function execTool(tab, action, args, maxChars = MAX_PAGE_CHARS) {
   switch (action) {
     case "read_page":
-      return await runInPage(tab.id, pageExtract, [MAX_PAGE_CHARS]);
+      return await runInPage(tab.id, pageExtract, [maxChars]);
     case "get_selection":
       return await runInPage(tab.id, pageGetSelection, []);
     case "click":
@@ -618,10 +630,11 @@ async function captureTabScreenshot(tab) {
 async function buildAskMessages(userText, history, tabId, opts = {}) {
   const settings = await loadSettings();
   const tab = await resolveTargetTab(tabId);
+  const maxChars = resolveMaxChars(opts.contextSection);
   let page = null;
   let pageStatus = "ok";
   try {
-    if (tab) page = await runInPage(tab.id, pageExtract, [MAX_PAGE_CHARS]);
+    if (tab) page = await runInPage(tab.id, pageExtract, [maxChars]);
   } catch (_) {
     page = null;
     pageStatus = "restricted";
@@ -657,7 +670,13 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
   };
 }
 
-async function runAgent(port, userText, history, tabId) {
+async function runAgent(
+  port,
+  userText,
+  history,
+  tabId,
+  contextSection = "full",
+) {
   const ctrl = getAgentControl(port);
   ctrl.cancelled = false;
   ctrl.paused = false;
@@ -665,9 +684,10 @@ async function runAgent(port, userText, history, tabId) {
   const tab = await resolveTargetTab(tabId);
   if (!tab) throw new Error("No active tab to act on.");
   // Extract page content and build context (mirrors ask mode behavior)
+  const maxChars = resolveMaxChars(contextSection);
   let page = null;
   try {
-    page = await runInPage(tab.id, pageExtract, [MAX_PAGE_CHARS]);
+    page = await runInPage(tab.id, pageExtract, [maxChars]);
   } catch (_) {
     // restricted page (chrome://, store, etc.) — continue without context
   }
@@ -835,7 +855,7 @@ async function runAgent(port, userText, history, tabId) {
 
     let result;
     try {
-      result = await execTool(tab, parsed.action, args);
+      result = await execTool(tab, parsed.action, args, maxChars);
     } catch (e) {
       result = { ok: false, error: String((e && e.message) || e) };
     }
@@ -857,7 +877,7 @@ async function runAgent(port, userText, history, tabId) {
   });
   // Save state so the user can continue from where we left off
   const stateKey = `agent-${Date.now()}`;
-  agentStates.set(stateKey, { convo, tabId, settings });
+  agentStates.set(stateKey, { convo, tabId, settings, contextSection });
   port.postMessage({ event: "step_limit_reached", stateKey });
   port.postMessage({ event: "done" });
 }
@@ -878,7 +898,8 @@ async function continueAgent(port, stateKey, userText) {
   ctrl.cancelled = false;
   ctrl.paused = false;
 
-  const { convo, tabId, settings } = saved;
+  const { convo, tabId, settings, contextSection = "full" } = saved;
+  const maxChars = resolveMaxChars(contextSection);
 
   // Append the new user message to the existing conversation
   convo.push({ role: "user", content: userText });
@@ -1017,7 +1038,7 @@ async function continueAgent(port, stateKey, userText) {
 
     let result;
     try {
-      result = await execTool(tab, parsed.action, args);
+      result = await execTool(tab, parsed.action, args, maxChars);
     } catch (e) {
       result = { ok: false, error: String((e && e.message) || e) };
     }
@@ -1034,7 +1055,7 @@ async function continueAgent(port, stateKey, userText) {
   }
   // Step limit reached again — save state for another continue
   const newStateKey = `agent-${Date.now()}`;
-  agentStates.set(newStateKey, { convo, tabId, settings });
+  agentStates.set(newStateKey, { convo, tabId, settings, contextSection });
   port.postMessage({
     event: "assistant",
     text: "Stopped after the step limit. Ask me to continue if needed.",
@@ -1202,7 +1223,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           msg.text,
           msg.history || [],
           msg.tabId,
-          { vision: msg.vision, rag: msg.rag },
+          {
+            vision: msg.vision,
+            rag: msg.rag,
+            contextSection: msg.contextSection,
+          },
         );
         sendResponse({ ok: true, ...built });
       } catch (e) {
@@ -1299,7 +1324,13 @@ chrome.runtime.onConnect.addListener((port) => {
           });
           return;
         }
-        await runAgent(port, msg.text, msg.history || [], msg.tabId);
+        await runAgent(
+          port,
+          msg.text,
+          msg.history || [],
+          msg.tabId,
+          msg.contextSection,
+        );
       }
       if (msg.type === "continue") {
         await continueAgent(port, msg.stateKey, msg.text);

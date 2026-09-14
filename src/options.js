@@ -1,4 +1,5 @@
 import { PROVIDERS, chat, listModels } from "./providers.js";
+import { getErrorLog, clearErrorLog, logError } from "./errorlog.js";
 import { loadEnv, envGistToken, envGistId } from "./env.js";
 import { buildFullBackup, restoreFullBackup } from "./backup.js";
 import {
@@ -305,6 +306,7 @@ async function load() {
 
   renderPrompts(s.prompts);
   showActiveCard();
+  renderErrorLog();
 }
 
 async function save() {
@@ -325,8 +327,44 @@ async function test() {
     if (reply) setStatus(`Connected. Model said: ${reply.slice(0, 40)}`, "ok");
     else setStatus("Connected but got an empty reply.", "err");
   } catch (e) {
-    setStatus(`Failed: ${String((e && e.message) || e)}`, "err");
+    const msg = String((e && e.message) || e);
+    setStatus(`Failed: ${msg}`, "err");
+    logError("settings/test", msg);
   }
+}
+
+function setErrorLogStatus(text, kind) {
+  const node = el("errorLogStatus");
+  if (node) node.textContent = text;
+  if (node) node.className = `status ${kind || ""}`;
+}
+
+async function renderErrorLog() {
+  const ul = el("errorLogList");
+  if (!ul) return;
+  ul.innerHTML = "";
+  const entries = await getErrorLog();
+  if (!entries.length) {
+    const li = document.createElement("li");
+    li.className = "ext-nolink";
+    li.textContent = "No errors logged yet.";
+    ul.appendChild(li);
+    return;
+  }
+  for (const e of entries) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "ext-name";
+    name.textContent = `[${new Date(e.t).toLocaleString()}] (${e.where}) ${e.message}`;
+    li.appendChild(name);
+    ul.appendChild(li);
+  }
+}
+
+async function clearErrorLogUi() {
+  await clearErrorLog();
+  await renderErrorLog();
+  setErrorLogStatus("Log cleared.", "ok");
 }
 
 async function saveBackupSettings() {
@@ -581,6 +619,12 @@ async function saveAgentSites() {
 }
 
 el("agentSitesSave").addEventListener("click", saveAgentSites);
+
+el("errorLogRefresh")?.addEventListener("click", async () => {
+  await renderErrorLog();
+  setErrorLogStatus("Refreshed.", "ok");
+});
+el("errorLogClear")?.addEventListener("click", clearErrorLogUi);
 
 el("exportFullBackup").addEventListener("click", exportFullBackup);
 el("importFullBackup").addEventListener("click", () =>
