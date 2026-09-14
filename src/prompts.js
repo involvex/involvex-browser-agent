@@ -54,6 +54,69 @@ export const DEFAULT_ASK_SYSTEM =
 export const DEFAULT_AGENT_SYSTEM =
   "You are Involvex AI Agent, operating inside a web browser on behalf of the user.";
 
+/// Slash commands (core set). Pure data + pure parser — no DOM.
+/// `prompt` may be a string or a function receiving the trailing arg text.
+/// `mode` forces Ask/Agent for that one send. `local` names a panel action
+/// (`new`, `export`, `help`) handled without any model call.
+export const SLASH_COMMANDS = [
+  { name: "help", hint: "List available commands", local: "help" },
+  { name: "new", hint: "Start a new chat", local: "new" },
+  { name: "export", hint: "Export this chat as Markdown", local: "export" },
+  {
+    name: "summarize",
+    hint: "Summarize this page",
+    prompt: "Summarize this page in a few bullet points.",
+  },
+  {
+    name: "eli5",
+    hint: "Explain this page simply",
+    prompt:
+      "Explain what this page is about in simple terms, as if to a five-year-old.",
+  },
+  {
+    name: "translate",
+    hint: "Translate page (optional: language)",
+    prompt: (arg) =>
+      `Translate the page content to ${arg || "English"}. If it is already in that language, say so briefly.`,
+  },
+  {
+    name: "extract",
+    hint: "Extract tables, forms and lists",
+    prompt:
+      "Extract structured data from this page (tables, forms, lists) and present as organized markdown.",
+  },
+  {
+    name: "agent",
+    hint: "Run the rest as an agent task",
+    mode: "agent",
+  },
+  {
+    name: "ask",
+    hint: "Answer the rest as a plain question",
+    mode: "ask",
+  },
+];
+
+/// Parses `/command [args]` from composer text. Returns:
+/// { kind: "local", action } | { kind: "prompt", text, mode } |
+/// { kind: "passthrough" } (unknown command or no leading slash —
+/// the text must be sent as a normal message, never swallowed).
+export function parseSlashCommand(text) {
+  const match = String(text || "").match(/^\/([a-zA-Z]+)\s*([\s\S]*)$/);
+  if (!match) return { kind: "passthrough" };
+  const cmd = SLASH_COMMANDS.find((c) => c.name === match[1].toLowerCase());
+  if (!cmd) return { kind: "passthrough" };
+  const arg = (match[2] || "").trim();
+  if (cmd.local) return { kind: "local", action: cmd.local };
+  if (cmd.mode) {
+    if (!arg) return { kind: "local", action: "help" };
+    return { kind: "prompt", text: arg, mode: cmd.mode };
+  }
+  const prompt =
+    typeof cmd.prompt === "function" ? cmd.prompt(arg) : cmd.prompt;
+  return { kind: "prompt", text: prompt };
+}
+
 /// Starter agent recipes (#51, subset). Built-ins only — each is a canned
 /// first prompt executed by the existing agent loop (8-step cap,
 /// confirmations unchanged). Shown as chips in the empty state when Agent

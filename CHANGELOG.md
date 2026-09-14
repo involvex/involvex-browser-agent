@@ -3,6 +3,13 @@
 All notable changes to the extension. Versions follow the `manifest.json`
 `version` field.
 
+## Unreleased
+
+- **Slash commands (#54)** — type `/` in the composer for `/help`, `/new`,
+  `/export`, `/summarize`, `/eli5`, `/translate`, `/extract`, `/agent`,
+  `/ask` with keyboard/tap autocomplete. Unknown `/` text still sends
+  normally; `/help` costs no tokens.
+
 ## 0.9.0
 
 - **Image attachment (#47)** — 📎 button in the composer attaches a user image

@@ -141,9 +141,9 @@ Effort: `S` = 1–2 days, `M` = 3–7 days, `L` = 2+ weeks. Numbers are sequenti
 
 ## New candidates (post-v0.8, Sept 2026)
 
-Numbers #39–#53 are sequential and stable. Status `🆕 proposed → Later` means
+Numbers #39–#54 are sequential and stable. Status `🆕 proposed → Later` means
 candidate for `ROADMAP.md Later` — not scheduled until capacity appears.
-#47 / #48 / #51 are filed into ROADMAP Later per approval.
+#47 / #48 / #51 shipped in v0.9.0.
 
 | # | Feature | Status | Effort | Notes |
 | --- | --- | --- | --- | --- |
@@ -155,13 +155,14 @@ candidate for `ROADMAP.md Later` — not scheduled until capacity appears.
 | 44 | Retry failed request with backoff | 🆕 proposed → Later | S | Small wrapper in providers.js for flaky gateways |
 | 45 | Provider health / Load-models error hint | 🆕 proposed → Later | S | Reduce empty-model-list confusion; Ollama CORS hint (`OLLAMA_ORIGINS`) |
 | 46 | Summarize / ELI5 / Translate templates | 🆕 proposed → Later | S | Reuses prompt library; no new infra |
-| 47 | Image / file attachment to prompt | 🆕 proposed → Later | M | Reuse vision path (`buildUserMessage`); 1280px/JPEG-0.72; Ask-only V1; strip dataURLs before session save; needs Anthropic mapping + Gemini-stream image fix |
-| 48 | PDF / long-doc summarization flow | 🆕 proposed → Later | M | New `src/pdf.js` regex extractor (no pdf.js dep); ≤10MB; reuse RAG chunks + 12k cap; honest fallback for scanned/encrypted |
+| 47 | Image / file attachment to prompt | ✅ done | M | Shipped in v0.9.0: shared 📎 button, 5MB/1280px/JPEG-0.72, Ask-only V1, dataURLs stripped before save |
+| 48 | PDF / long-doc summarization flow | ✅ done | M | Shipped in v0.9.0: `src/pdf.js` vanilla extractor (≤10MB), RAG path reuse, honest scanned/encrypted fallback |
 | 49 | Chat folders / tags + bulk delete | 🆕 proposed → Later | M | 50-chat cap exists; organization does not |
 | 50 | Per-provider model params UI (temp/top-p) | 🆕 proposed → Later | M | Custom prompts exist; no sampling control yet |
 | 51 | Agent recipe / workflow templates (subset) | ✅ done | M | Shipped: 3 built-ins (summarize+extract, form-fill, compare links) via `AGENT_RECIPES` in prompts.js; reuse `runAgent` loop, 8-step cap, confirmations |
 | 52 | Selection bubble polish (mobile-safe) | 🆕 proposed → Later | M | Selection actions exist; no floating bubble |
 | 53 | Backup verify + restore dry-run | 🆕 proposed → Later | M | Gist + file backup exist; no integrity check |
+| 54 | Slash commands in composer | ✅ done | S | Shipped: `/help /new /export /summarize /eli5 /translate /extract /agent /ask` with autocomplete; exact-match only, passthrough fallback |
 
 ---
 

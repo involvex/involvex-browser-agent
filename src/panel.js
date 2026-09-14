@@ -13,7 +13,12 @@ import {
   deleteSession,
   clearSessions,
 } from "./sessions.js";
-import { DEFAULT_PROMPTS, AGENT_RECIPES } from "./prompts.js";
+import {
+  DEFAULT_PROMPTS,
+  AGENT_RECIPES,
+  SLASH_COMMANDS,
+  parseSlashCommand,
+} from "./prompts.js";
 import { logError } from "./errorlog.js";
 import { extractPdfText } from "./pdf.js";
 
@@ -888,20 +893,146 @@ function regenerate() {
   send(userText, { regenerate: true });
 }
 
+/// Slash-command autocomplete state (#54).
+let slashMatches = [];
+let slashIdx = 0;
+const slashMenu = document.getElementById("slashMenu");
+
+function hideSlashMenu() {
+  slashMatches = [];
+  slashIdx = 0;
+  if (slashMenu) slashMenu.hidden = true;
+}
+
+function renderSlashMenu() {
+  if (!slashMenu || !slashMatches.length) {
+    hideSlashMenu();
+    return;
+  }
+  slashMenu.innerHTML = "";
+  slashMatches.forEach((cmd, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "slash-item" + (i === slashIdx ? " active" : "");
+    btn.dataset.slash = cmd.name;
+    const name = document.createElement("span");
+    name.className = "slash-name";
+    name.textContent = `/${cmd.name}`;
+    const hint = document.createElement("span");
+    hint.className = "slash-hint";
+    hint.textContent = cmd.hint || "";
+    btn.appendChild(name);
+    btn.appendChild(hint);
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      completeSlashCommand(cmd.name);
+    });
+    slashMenu.appendChild(btn);
+  });
+  slashMenu.hidden = false;
+}
+
+function updateSlashMenu() {
+  const m = inputEl.value.match(/^\/([a-zA-Z]*)$/);
+  if (!m) {
+    hideSlashMenu();
+    return;
+  }
+  const q = m[1].toLowerCase();
+  slashMatches = SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
+  slashIdx = 0;
+  renderSlashMenu();
+}
+
+function completeSlashCommand(name) {
+  inputEl.value = `/${name} `;
+  inputEl.focus();
+  hideSlashMenu();
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+}
+
+function showSlashHelp() {
+  const lines = SLASH_COMMANDS.map((c) => `• \`/${c.name}\` — ${c.hint || ""}`);
+  addMessage("assistant", `**Commands**\n\n${lines.join("\n")}`);
+}
+
+/// Runs local slash actions (no model call, no tokens).
+function runSlashLocal(action) {
+  if (action === "new") {
+    clearAttachment();
+    newChat();
+  } else if (action === "export") {
+    exportMarkdown();
+  } else {
+    showSlashHelp();
+  }
+}
+
+function sendSlashCommand(raw) {
+  const parsed = parseSlashCommand(raw);
+  if (parsed.kind === "passthrough") {
+    send(raw);
+    return;
+  }
+  if (parsed.kind === "local") {
+    runSlashLocal(parsed.action);
+    return;
+  }
+  if (parsed.mode) {
+    const wantAgent = parsed.mode === "agent";
+    if (agentToggle.checked !== wantAgent) {
+      agentToggle.checked = wantAgent;
+      chrome.storage.local.set({ agentMode: wantAgent });
+      agentCanContinue = false;
+      agentContinueStateKey = null;
+    }
+  }
+  send(parsed.text);
+}
+
 formEl.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = inputEl.value;
   inputEl.value = "";
   inputEl.style.height = "auto";
-  send(text);
+  hideSlashMenu();
+  if (!text.trim()) return;
+  if (text.startsWith("/")) sendSlashCommand(text);
+  else send(text);
 });
 
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+  updateSlashMenu();
 });
 
 inputEl.addEventListener("keydown", (e) => {
+  if (slashMenu && !slashMenu.hidden) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = slashMatches.length;
+      slashIdx =
+        e.key === "ArrowDown" ? (slashIdx + 1) % n : (slashIdx - 1 + n) % n;
+      renderSlashMenu();
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      hideSlashMenu();
+      return;
+    }
+    if (
+      (e.key === "Enter" && !e.shiftKey) ||
+      (e.key === "Tab" && slashMatches.length)
+    ) {
+      e.preventDefault();
+      const cmd = slashMatches[slashIdx] || slashMatches[0];
+      if (cmd) completeSlashCommand(cmd.name);
+      return;
+    }
+  }
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     formEl.requestSubmit();
