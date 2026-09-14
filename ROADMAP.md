@@ -15,7 +15,7 @@ Prioritization rules (all planned work must fit these):
 5. Defer multi-user infra and plugin marketplaces
 
 ```
-v0.8.0 (today) → Later
+v0.9.0 (today) → Later
 ```
 
 ---
@@ -64,6 +64,14 @@ v0.8.0 (today) → Later
 - Agent streaming, per-site allow/deny, safety confirmations
 - Tools: `wait_for_element`, `scroll_to_element`, `extract_data`
 - Agent step bar with pause/cancel
+
+### v0.9.0
+
+- Image attachment (#47) — shared 📎 composer button, Ask-mode only
+- PDF summarization (#48) — vanilla `src/pdf.js` extractor through RAG path
+- Agent recipes subset (#51) — 3 starter `🤖` chips in Agent-mode empty state
+- Provider vision fixes — Anthropic blocks, Ollama multi-image, Gemini-stream images
+- Session storage hygiene — dataURLs stripped before persist
 
 **Note:** Prompt library values already ride along in the full settings Gist
 backup when `includePrompts` is enabled. Without the flag, prompts are omitted
@@ -154,4 +162,4 @@ Do not schedule into near releases unless a concrete need appears.
 
 ---
 
-*Last prioritized: September 2026 (suggestions #39–#53 filed; #47/#48/#51 → Later; shipped tags reconciled with v0.8.0).*
+*Last prioritized: September 2026 (v0.9.0 cut with #47/#48/#51; remaining #39–#46 + #49/#50/#52/#53 stay in Later).*

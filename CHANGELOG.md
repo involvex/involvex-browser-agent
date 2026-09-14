@@ -3,7 +3,7 @@
 All notable changes to the extension. Versions follow the `manifest.json`
 `version` field.
 
-## Unreleased
+## 0.9.0
 
 - **Image attachment (#47)** — 📎 button in the composer attaches a user image
   (5MB cap, downscaled to 1280px JPEG 0.72) alongside the optional page
