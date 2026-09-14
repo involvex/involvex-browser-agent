@@ -3,7 +3,7 @@
 All notable changes to the extension. Versions follow the `manifest.json`
 `version` field.
 
-## Unreleased
+## 0.10.0
 
 - **Slash commands (#54)** — type `/` in the composer for `/help`, `/new`,
   `/export`, `/summarize`, `/eli5`, `/translate`, `/extract`, `/agent`,

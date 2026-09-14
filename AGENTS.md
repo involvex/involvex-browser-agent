@@ -8,7 +8,7 @@ This file contains instructions for AI agents working on the Involvex AI Agent p
 
 **Involvex AI Agent** is a Chrome extension (Manifest V3) that provides an on-tap AI assistant. It reads and acts on the current web page, supports multiple AI providers, and includes a private backup system via GitHub Gists.
 
-**Current version:** 0.9.0
+**Current version:** 0.10.0
 
 ### Key Features
 

@@ -69,7 +69,7 @@ pwsh scripts/adb-update.ps1 -ClearCache   # force-stop + clear cache, then open 
 ```
 
 On the device the script opens `chrome://extensions/?id=…`. **Tap Reload**
-(Chromium Android cannot click that button for you), confirm version **0.8.0**,
+(Chromium Android cannot click that button for you), confirm version **0.10.0**,
 then close and reopen the AI panel tab.
 
 Browser package defaults to auto-detect (`io.github.jqssun.helium` or

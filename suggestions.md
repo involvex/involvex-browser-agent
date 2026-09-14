@@ -168,7 +168,7 @@ candidate for `ROADMAP.md Later` — not scheduled until capacity appears.
 
 ## Original priority matrix (HISTORICAL)
 
-Kept for context; **current schedule is ROADMAP v0.9.0 → Later**.
+Kept for context; **current schedule is ROADMAP v0.10.0 → Later**.
 Do not schedule from this section — see “New candidates” above and ROADMAP Later.
 
 ### Quick wins (were 1–2 days each)
