@@ -363,6 +363,43 @@ async function agentModelReply(settings, convo, port) {
 function extractJsonFromFenced(raw) {
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) return fence[1];
+  // Unclosed fence (truncated reply): take everything after the opener.
+  const open = raw.match(/```(?:json)?\s*([\s\S]*)$/i);
+  if (open && open[1] && open[1].includes('"action"')) return open[1];
+  return null;
+}
+
+/// Best-effort repair for model JSON that is almost valid:
+/// smart quotes, single-quoted keys/values, trailing commas,
+/// // and /* */ comments, Python True/False/None.
+function repairJsonString(s) {
+  let out = String(s || "");
+  out = out
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'");
+  out = out.replace(/\/\/[^\n\r]*/g, "");
+  out = out.replace(/\/\*[\s\S]*?\*\//g, "");
+  // 'key': 'value' -> "key": "value" (only when it looks like JSON)
+  out = out.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+  out = out
+    .replace(/\bTrue\b/g, "true")
+    .replace(/\bFalse\b/g, "false")
+    .replace(/\bNone\b/g, "null");
+  out = out.replace(/,\s*([}\]])/g, "$1");
+  return out;
+}
+
+function tryParseActionJson(jsonStr) {
+  const attempts = [jsonStr, repairJsonString(jsonStr)];
+  for (const text of attempts) {
+    try {
+      const obj = JSON.parse(text.trim());
+      if (obj && typeof obj.action === "string") return obj;
+      if (obj && obj.action != null) return obj;
+    } catch (_) {
+      // try next repair variant
+    }
+  }
   return null;
 }
 
@@ -391,62 +428,119 @@ function extractJsonWithActionKey(raw) {
   const actionMatch = raw.match(/"action"\s*:/);
   if (!actionMatch) return null;
 
-  const start = raw.indexOf("{");
-  if (start === -1 || start > actionMatch.index) return null;
+  // Try every "{" before the "action" key (last wins for nested/prose cases).
+  const starts = [];
+  for (
+    let idx = raw.indexOf("{");
+    idx !== -1 && idx <= actionMatch.index;
+    idx = raw.indexOf("{", idx + 1)
+  ) {
+    starts.push(idx);
+  }
+  if (!starts.length) return null;
 
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\" && inString) {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        const candidate = raw.slice(start, i + 1);
-        try {
-          const obj = JSON.parse(candidate);
+  for (let s = starts.length - 1; s >= 0; s--) {
+    const start = starts[s];
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = raw.slice(start, i + 1);
+          const obj = tryParseActionJson(candidate);
           if (obj && obj.action) return candidate;
-        } catch (_) {
-          return null;
+          break; // this start didn't yield valid JSON — try outer start
         }
-        return null;
       }
     }
   }
   return null;
 }
 
+/// Classifies why parsing failed for better debug UI.
+function parseFailureReason(raw) {
+  if (!raw || !raw.trim()) return "empty";
+  if (!/"action"\s*:/.test(raw)) return "prose";
+  return "invalid_json";
+}
+
 function parseAction(raw) {
+  if (!raw || !raw.trim()) return null;
   let jsonStr = extractJsonFromFenced(raw);
-  if (!jsonStr) {
-    jsonStr = extractJsonFromOuterQuotes(raw);
+  if (jsonStr) {
+    const obj = tryParseActionJson(jsonStr);
+    if (obj) return obj;
   }
-  if (!jsonStr) {
-    jsonStr = extractJsonWithActionKey(raw);
+  jsonStr = extractJsonFromOuterQuotes(raw);
+  if (jsonStr) {
+    const obj = tryParseActionJson(jsonStr);
+    if (obj) return obj;
   }
-  if (!jsonStr) return null;
-  try {
-    const obj = JSON.parse(jsonStr.trim());
-    if (obj && typeof obj.action === "string") return obj;
-    if (obj && obj.action != null) return obj;
-  } catch (_) {
-    // not a tool call; treat as prose
+  jsonStr = extractJsonWithActionKey(raw);
+  if (jsonStr) {
+    const obj = tryParseActionJson(jsonStr);
+    if (obj) return obj;
+  }
+  // Pure prose (no action key): treat as a finish answer instead of fatal.
+  if (!/"action"\s*:/.test(raw)) {
+    const answer = raw.trim().slice(0, 4000);
+    if (answer)
+      return { action: "finish", args: { answer }, thought: "prose fallback" };
   }
   return null;
+}
+
+const AGENT_FORMAT_NUDGE =
+  `Your last reply was not valid agent JSON. Reply with ONLY one fenced json block, ` +
+  `no prose outside it:\n` +
+  "```json\n" +
+  `{"thought":"why","action":"<name>","args":{...}}\n` +
+  "```\n" +
+  `Valid actions: read_page, get_selection, click, fill, navigate, scroll, ` +
+  `wait_for_element, scroll_to_element, extract_data, finish.`;
+
+/// Handles one model reply: empty check, parse, one retry with a format nudge.
+/// Returns { parsed, raw } or { fatal, raw, reason } when the step must abort.
+async function parseAgentStep(settings, convo, port, provider, model) {
+  let raw = await agentModelReply(settings, convo, port);
+  let parsed = parseAction(raw);
+  if (parsed) return { parsed, raw };
+  const reason = parseFailureReason(raw);
+  if (reason === "empty") {
+    port.postMessage({
+      event: "agent_debug",
+      raw: "(empty model reply)",
+      reason: "empty",
+      provider,
+      model,
+    });
+    return { fatal: true, raw, reason };
+  }
+  // One retry with a corrective nudge — caller continues without consuming
+  // an extra MAX_AGENT_STEPS slot for the retry itself.
+  port.postMessage({ event: "status", text: "Retrying with format reminder…" });
+  convo.push({ role: "user", content: AGENT_FORMAT_NUDGE });
+  raw = await agentModelReply(settings, convo, port);
+  parsed = parseAction(raw);
+  if (parsed) return { parsed, raw };
+  return { fatal: true, raw, reason: parseFailureReason(raw) };
 }
 
 const VISION_MAX_EDGE = 1280;
@@ -635,7 +729,16 @@ async function runAgent(port, userText, history, tabId) {
       event: "status",
       text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
     });
-    const raw = await agentModelReply(settings, convo, port);
+    const provider = settings.provider;
+    const model = (settings[provider] || {}).model || "";
+    const stepRes = await parseAgentStep(
+      settings,
+      convo,
+      port,
+      provider,
+      model,
+    );
+    const raw = stepRes.raw;
     lastRaw = raw;
     if (ctrl.cancelled) {
       port.postMessage({
@@ -646,22 +749,28 @@ async function runAgent(port, userText, history, tabId) {
       port.postMessage({ event: "done" });
       return;
     }
-    const parsed = parseAction(raw);
-    if (!parsed) {
-      const truncated = raw.slice(0, 200).replace(/\n/g, " ");
+    if (stepRes.fatal) {
+      const reason = stepRes.reason || "parse_failed";
       port.postMessage({
         event: "agent_debug",
-        raw: raw.slice(0, 2000),
-        reason: "parse_failed",
+        raw: (raw || "").slice(0, 2000) || "(empty model reply)",
+        reason,
+        provider,
+        model,
       });
+      const hint =
+        reason === "empty"
+          ? `The model returned an empty reply (${provider}/${model || "default"}). The server may have ignored stream:true or blocked the request — retry, or check Settings → Test.`
+          : `Could not parse agent JSON output (${reason}). Check the debug details below.`;
       port.postMessage({
         event: "assistant",
-        text: `Could not parse agent JSON output. Check the debug details below.`,
+        text: hint,
         raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
     }
+    const parsed = stepRes.parsed;
     convo.push({ role: "assistant", content: raw });
     if (parsed.action === "finish") {
       port.postMessage({
@@ -802,7 +911,16 @@ async function continueAgent(port, stateKey, userText) {
       event: "status",
       text: `Planning (step ${step + 1}/${MAX_AGENT_STEPS})…`,
     });
-    const raw = await agentModelReply(settings, convo, port);
+    const provider = settings.provider;
+    const model = (settings[provider] || {}).model || "";
+    const stepRes = await parseAgentStep(
+      settings,
+      convo,
+      port,
+      provider,
+      model,
+    );
+    const raw = stepRes.raw;
     lastRaw = raw;
     if (ctrl.cancelled) {
       port.postMessage({
@@ -813,22 +931,28 @@ async function continueAgent(port, stateKey, userText) {
       port.postMessage({ event: "done" });
       return;
     }
-    const parsed = parseAction(raw);
-    if (!parsed) {
-      const truncated = raw.slice(0, 200).replace(/\n/g, " ");
+    if (stepRes.fatal) {
+      const reason = stepRes.reason || "parse_failed";
       port.postMessage({
         event: "agent_debug",
-        raw: raw.slice(0, 2000),
-        reason: "parse_failed",
+        raw: (raw || "").slice(0, 2000) || "(empty model reply)",
+        reason,
+        provider,
+        model,
       });
+      const hint =
+        reason === "empty"
+          ? `The model returned an empty reply (${provider}/${model || "default"}). The server may have ignored stream:true or blocked the request — retry, or check Settings → Test.`
+          : `Could not parse agent JSON output (${reason}). Check the debug details below.`;
       port.postMessage({
         event: "assistant",
-        text: `Could not parse agent JSON output. Check the debug details below.`,
+        text: hint,
         raw: lastRaw,
       });
       port.postMessage({ event: "done" });
       return;
     }
+    const parsed = stepRes.parsed;
     convo.push({ role: "assistant", content: raw });
     if (parsed.action === "finish") {
       port.postMessage({

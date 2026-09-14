@@ -136,6 +136,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _sse(self, text: str, model: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        # Chunked deltas so the extension's readOpenAiSse() emits tokens.
+        chunk_size = 20
+        for i in range(0, max(1, len(text)), chunk_size):
+            delta = text[i : i + chunk_size]
+            payload = {
+                "id": "chatcmpl-fastvlm",
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": delta}}],
+            }
+            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+        self.wfile.write(b"data: [DONE]\n\n")
+
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -165,6 +185,10 @@ class Handler(BaseHTTPRequestHandler):
             if not prompt:
                 raise ValueError("No user message found")
             text = run_inference(prompt, image_path)
+            model = body.get("model") or "fastvlm-0.5b"
+            if body.get("stream"):
+                self._sse(text, model)
+                return
             self._json(
                 200,
                 {
@@ -213,7 +237,9 @@ def main() -> None:
         print("Wireless debugging: use http://<your-PC-LAN-IP>:8765/v1 on the phone.")
         print("Allow port 8765 in Windows Firewall if the phone cannot connect.")
     elif host == "127.0.0.1":
-        print("USB debugging: adb reverse tcp:8765 tcp:8765 then use http://127.0.0.1:8765/v1")
+        print(
+            "USB debugging: adb reverse tcp:8765 tcp:8765 then use http://127.0.0.1:8765/v1"
+        )
     server = ThreadingHTTPServer((host, args.port), Handler)
     server.serve_forever()
 

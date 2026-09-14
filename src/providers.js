@@ -477,10 +477,18 @@ export function supportsStreaming(provider) {
 }
 
 /// Parses an SSE byte stream and invokes `onToken` for each text delta.
+/// Returns the number of tokens emitted (0 when the server ignored stream:true).
 async function readOpenAiSse(res, onToken, signal) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let count = 0;
+  const emit = (t) => {
+    if (t) {
+      count++;
+      onToken(t);
+    }
+  };
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const { done, value } = await reader.read();
@@ -492,22 +500,42 @@ async function readOpenAiSse(res, onToken, signal) {
       const trimmed = line.trim();
       if (!trimmed.startsWith("data:")) continue;
       const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") return;
+      if (data === "[DONE]") return count;
       try {
         const json = JSON.parse(data);
         const delta = json.choices?.[0]?.delta?.content;
-        if (delta) onToken(delta);
+        // Some OpenAI-compatible servers send non-stream `message` objects
+        // even when stream:true was requested — accept those too.
+        const msgContent = json.choices?.[0]?.message?.content;
+        if (delta) emit(delta);
+        else if (typeof msgContent === "string" && msgContent) emit(msgContent);
       } catch (_) {
         // skip malformed SSE chunks
       }
     }
   }
+  // Trailing buffered line without a newline terminator.
+  const tail = buffer.trim();
+  if (tail.startsWith("data:")) {
+    const data = tail.slice(5).trim();
+    if (data && data !== "[DONE]") {
+      try {
+        const json = JSON.parse(data);
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) emit(delta);
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
+  return count;
 }
 
 async function readGeminiSse(res, onToken, signal) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let count = 0;
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const { done, value } = await reader.read();
@@ -522,12 +550,16 @@ async function readGeminiSse(res, onToken, signal) {
       try {
         const json = JSON.parse(data);
         const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) onToken(text);
+        if (text) {
+          count++;
+          onToken(text);
+        }
       } catch (_) {
         // skip malformed SSE chunks
       }
     }
   }
+  return count;
 }
 
 async function streamOpenAiCompatible(
@@ -554,6 +586,36 @@ async function streamOpenAiCompatible(
     const detail = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText} ${detail}`.trim());
   }
+  const contentType = (res.headers?.get?.("content-type") || "").toLowerCase();
+  if (
+    contentType.includes("application/json") &&
+    !contentType.includes("event-stream")
+  ) {
+    // Server ignored stream:true and returned a single JSON payload
+    // (e.g. scripts/fastvlm-bridge.py, some LM Studio / Ollama-compat builds).
+    const text = await res.text().catch(() => "");
+    try {
+      const json = JSON.parse(text);
+      const content =
+        json?.choices?.[0]?.message?.content ||
+        json?.choices?.[0]?.delta?.content ||
+        json?.content ||
+        "";
+      if (typeof content === "string" && content) onToken(content);
+      return;
+    } catch (_) {
+      // Not JSON either — fall through to SSE parsing of the raw text.
+      try {
+        const json = JSON.parse(text);
+        void json;
+      } catch (_) {
+        // re-throw a helpful error with a snippet
+      }
+      throw new Error(
+        `[non-sse 200] ${res.status} ${res.statusText} ${text.slice(0, 300).trim()}`,
+      );
+    }
+  }
   await readOpenAiSse(res, onToken, signal);
 }
 
@@ -562,7 +624,14 @@ async function streamGemini(apiKey, model, messages, signal, onToken) {
   const { system, rest } = splitSystem(messages);
   const contents = rest.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+    parts: [
+      {
+        text:
+          typeof m.content === "string"
+            ? m.content
+            : textFromContent(m.content),
+      },
+    ],
   }));
   const body = { contents };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
@@ -662,6 +731,16 @@ export async function chatStream(settings, messages, onToken) {
       default:
         full = await chat(settings, messages);
         if (full) onToken(full);
+    }
+    if (!full) {
+      // Streaming servers that ignore stream:true yield zero SSE tokens
+      // (plain JSON 200 or empty body). Fall back to a single-shot request
+      // so Agent mode still gets a usable `raw` instead of "" -> parse error.
+      console.warn(
+        `[involvex] chatStream got 0 tokens for ${provider}, retrying non-stream chat()`,
+      );
+      full = await chat(settings, messages);
+      if (full) onToken(full);
     }
     return full.trim();
   } finally {
