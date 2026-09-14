@@ -121,10 +121,13 @@ Do not schedule into near releases unless a concrete need appears.
 | Item | Why parked |
 | --- | --- |
 | Multi-turn conversation memory | New persistence + retrieval model; large UX surface |
-| Context window management UI | Needs token estimates + section picker; useful after vision/RAG polish |
-| Message pinning / bookmarks | Wait until regenerate proves message-action UX patterns |
+| Context window management UI | Shipped (section picker + char estimates); token meter (#41) tracked separately |
+| Message pinning / bookmarks | Shipped (📌/★ + localStorage); folders/tags (#49) tracked separately |
 | Voice input/output | Platform permission + Android variability |
-| Multi-language UI (i18n) | Large string surface; prefer response-language setting first if needed |
+| Multi-language UI (i18n) | Large string surface; prefer response-language setting (#43) first if needed |
+| Image attachment (#47) | Reuse vision path; Ask-only V1; strip dataURLs before session save (M, 4–6d) |
+| PDF summarization (#48) | New `src/pdf.js` regex extractor, no pdf.js dep; reuse RAG + 12k cap (M, 4–7d) |
+| Agent recipes subset (#51) | 3 built-ins via `AGENT_RECIPES`; reuse `runAgent` loop + 8-step cap (M, 3–5d) |
 
 ### Integrations / infra
 
@@ -151,4 +154,4 @@ Do not schedule into near releases unless a concrete need appears.
 
 ---
 
-*Last prioritized: August 2026 (merged from prior Next/Ideas + suggestions.md; v0.9 quick wins + conversation virtualization + automated tests added).*
+*Last prioritized: September 2026 (suggestions #39–#53 filed; #47/#48/#51 → Later; shipped tags reconciled with v0.8.0).*

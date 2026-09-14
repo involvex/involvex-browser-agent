@@ -668,21 +668,36 @@ async function buildAskMessages(userText, history, tabId, opts = {}) {
     ollamaBase: settings.ollama?.baseUrl || "http://localhost:11434",
     embedModel: settings.rag?.embedModel || "nomic-embed-text",
   };
+  // #48: an attached PDF replaces page content as the grounded context.
+  // Reuses the same RAG path (12k cap, excerpts) with title = filename.
+  if (opts.docText) {
+    page = {
+      title: opts.docTitle || "attached.pdf",
+      url: "file://attached",
+      text: String(opts.docText).slice(0, MAX_PAGE_CHARS),
+    };
+  }
   const ctx = await buildPageContext(userText, page, ragOptions);
   const askBase =
     (settings.systemPrompts && settings.systemPrompts.ask) ||
     DEFAULT_ASK_SYSTEM;
   const system = `${askBase}\n\n${ctx}`;
   let userMsg = { role: "user", content: userText };
+  const images = [];
+  if (opts.userImage) images.push(opts.userImage);
   const useVision = opts.vision ?? settings.vision?.enabled ?? false;
   if (useVision && tab) {
     const shot = await captureTabScreenshot(tab);
-    if (shot) {
-      userMsg = buildUserMessage(
-        `${userText}\n\n(Attached: screenshot of the page content region.)`,
-        shot,
-      );
-    }
+    if (shot) images.push(shot);
+  }
+  if (images.length) {
+    const suffix =
+      images.length > 1
+        ? "\n\n(Attached: your image + a screenshot of the page content region.)"
+        : opts.userImage
+          ? "\n\n(Attached: your image.)"
+          : "\n\n(Attached: screenshot of the page content region.)";
+    userMsg = buildUserMessage(`${userText}${suffix}`, images);
   }
   return {
     messages: [{ role: "system", content: system }, ...history, userMsg],
@@ -1253,6 +1268,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             vision: msg.vision,
             rag: msg.rag,
             contextSection: msg.contextSection,
+            userImage: msg.userImage,
+            docText: msg.docText,
+            docTitle: msg.docTitle,
           },
         );
         sendResponse({ ok: true, ...built });

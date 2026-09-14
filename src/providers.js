@@ -104,14 +104,16 @@ export function providerSupportsVision(provider) {
   return !!PROVIDERS[provider]?.supportsVision;
 }
 
-/// Builds a user message, optionally attaching a page screenshot for vision models.
-export function buildUserMessage(text, imageDataUrl) {
-  if (!imageDataUrl) return { role: "user", content: text };
+/// Builds a user message, optionally attaching images for vision models.
+/// `image` accepts a single dataURL or an array of dataURLs (user upload + screenshot).
+export function buildUserMessage(text, image) {
+  const list = (Array.isArray(image) ? image : [image]).filter(Boolean);
+  if (!list.length) return { role: "user", content: text };
   return {
     role: "user",
     content: [
       { type: "text", text },
-      { type: "image_url", image_url: { url: imageDataUrl } },
+      ...list.map((url) => ({ type: "image_url", image_url: { url } })),
     ],
   };
 }
@@ -123,10 +125,17 @@ function messageHasImage(messages) {
   );
 }
 
-function extractImageDataUrl(content) {
-  if (!Array.isArray(content)) return null;
-  const img = content.find((p) => p.type === "image_url");
-  return img?.image_url?.url || null;
+function extractAllImageDataUrls(content) {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((p) => p.type === "image_url")
+    .map((p) => p.image_url?.url)
+    .filter(Boolean);
+}
+
+function parseDataUrl(url) {
+  const match = String(url || "").match(/^data:([^;]+);base64,(.+)$/s);
+  return match ? { mime: match[1], data: match[2] } : null;
 }
 
 function textFromContent(content) {
@@ -530,7 +539,31 @@ async function chatAnthropic(apiKey, model, messages, signal, out = null) {
   const body = {
     model,
     max_tokens: 2048,
-    messages: rest.map((m) => ({ role: m.role, content: m.content })),
+    messages: rest.map((m) => {
+      if (!Array.isArray(m.content))
+        return { role: m.role, content: m.content };
+      const blocks = [];
+      for (const p of m.content) {
+        if (p.type === "text") blocks.push({ type: "text", text: p.text });
+        else if (p.type === "image_url") {
+          const parsed = parseDataUrl(p.image_url?.url);
+          if (parsed) {
+            blocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: parsed.mime,
+                data: parsed.data,
+              },
+            });
+          }
+        }
+      }
+      return {
+        role: m.role,
+        content: blocks.length ? blocks : textFromContent(m.content),
+      };
+    }),
   };
   if (system) body.system = system;
   const data = await request("https://api.anthropic.com/v1/messages", {
@@ -556,12 +589,11 @@ async function chatOllama(base, model, messages, signal, out = null) {
     .map((m) => {
       if (Array.isArray(m.content)) {
         const text = textFromContent(m.content);
-        const imgUrl = extractImageDataUrl(m.content);
         const msg = { role: m.role, content: text };
-        if (imgUrl) {
-          const match = imgUrl.match(/^data:[^;]+;base64,(.+)$/s);
-          if (match) msg.images = [match[1]];
-        }
+        const images = extractAllImageDataUrls(m.content)
+          .map((u) => parseDataUrl(u)?.data)
+          .filter(Boolean);
+        if (images.length) msg.images = images;
         return msg;
       }
       return { role: m.role, content: m.content };
@@ -861,17 +893,23 @@ export function isTemperatureError(detail) {
 async function streamGemini(apiKey, model, messages, signal, onToken) {
   if (!apiKey) throw new Error("Gemini API key not set (open Options).");
   const { system, rest } = splitSystem(messages);
-  const contents = rest.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [
-      {
-        text:
-          typeof m.content === "string"
-            ? m.content
-            : textFromContent(m.content),
-      },
-    ],
-  }));
+  const contents = rest.map((m) => {
+    const role = m.role === "assistant" ? "model" : "user";
+    if (Array.isArray(m.content)) {
+      const parts = [];
+      const text = textFromContent(m.content);
+      if (text) parts.push({ text });
+      for (const url of extractAllImageDataUrls(m.content)) {
+        const parsed = parseDataUrl(url);
+        if (parsed)
+          parts.push({
+            inline_data: { mime_type: parsed.mime, data: parsed.data },
+          });
+      }
+      return { role, parts: parts.length ? parts : [{ text: "" }] };
+    }
+    return { role, parts: [{ text: m.content }] };
+  });
   const body = { contents };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   const url =

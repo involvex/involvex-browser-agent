@@ -15,6 +15,9 @@ Status tags:
 | ⏭ v0.8 | Locked into v0.8 |
 | ⏸ later | Parked — see ROADMAP Later |
 | ❌ won't | Explicitly out of scope unless requirements change |
+| 🆕 proposed | New candidate (Sept 2026, numbered #39–#53, see below) |
+
+Effort: `S` = 1–2 days, `M` = 3–7 days, `L` = 2+ weeks. Numbers are sequential and stable — never reuse.
 
 ---
 
@@ -25,8 +28,8 @@ Status tags:
 | 1 | Streaming responses in Agent mode | ✅ done | Shipped in v0.8.0 |
 | 2 | Per-site agent allow/deny list | ✅ done | Shipped in v0.8.0 |
 | 3 | Multi-turn conversation memory | ⏸ later | |
-| 37 | JSON output parsing improvement in agent mode | ⏸ later | Fix parseAction to handle fenced/non-fenced JSON reliably |
-| 38 | Agent "continue" after step limit | ⏸ later | Allow continuing agent loops beyond 8 steps when user requests |
+| 37 | JSON output parsing improvement in agent mode | ✅ done | Shipped in v0.8.0 (fenced/non-fenced + outer-quote unwrap + format-nudge retry) |
+| 38 | Agent "continue" after step limit | ✅ done | Shipped in v0.8.0 (Continue button, convo + page context preserved) |
 | 4 | Custom system prompts | ✅ done | Shipped in v0.7.0 |
 | 5 | Keyboard shortcuts | ✅ done | Shipped in v0.7.0 |
 
@@ -48,15 +51,17 @@ Status tags:
 | 12 | Agent workflow templates | ⏸ later | |
 | 13 | Agent step visualization | ✅ done (subset) | Step bar + pause/cancel in v0.8.0 |
 | 14 | Agent safety controls | ✅ done (subset) | Confirmations in v0.8.0 |
-| 15 | Parse action JSON robustness | ⏸ later | Fix parseAction JSON extraction reliability |
-| 16 | Agent continue after step limit | ⏸ later | Extend agent loops beyond 8-step cap |
+| 15 | Parse action JSON robustness | ✅ done | Duplicate of #37 — merged, shipped in v0.8.0 |
+| 16 | Agent continue after step limit | ✅ done | Duplicate of #38 — merged, shipped in v0.8.0 |
 
 ## Analytics & insights (original)
 
+> Note: original IDs reused #15/#16 — relabeled #15b/#16b to keep numbers stable.
+
 | # | Feature | Status | Notes |
 | --- | --- | --- | --- |
-| 15 | Usage analytics (opt-in local) | ⏸ later | Hygiene when capacity allows |
-| 16 | Page content insights | ⏸ later | |
+| 15b | Usage analytics (opt-in local) | ⏸ later | Hygiene when capacity allows |
+| 16b | Page content insights | ⏸ later | |
 
 ## Integration features (original)
 
@@ -123,15 +128,47 @@ Status tags:
 | Prompt library already in settings Gist | ✅ done | Values sync with settings blob |
 | Prompt-library Gist UX (`includePrompts` + merge) | ✅ done | Shipped in v0.7.0 |
 | Screenshot-to-vision polish | ✅ done | Shipped in v0.7.0 |
+| File backup & restore (JSON export/import) | ✅ done | Shipped in v0.8.0 (includes API keys, unlike Gist) |
+| Agent JSON resilience (outer-quote unwrap) | ✅ done | Shipped in v0.8.0 |
+| Agent debug panel (raw output details) | ✅ done | Shipped in v0.8.0 (up to 2000 chars) |
+| Keyboard shortcut bar in panel | ✅ done | Shipped in v0.8.0 (hidden on narrow mobile) |
+| ADB push auto-packages | ✅ done | Shipped in v0.8.0 (`adb-update.ps1` runs packager first) |
 | Native FastVLM on Android | ❌ won't | Outside this extension repo; PC bridge remains supported |
 | MEGA backup backend | ⏸ later | Gist stays default |
 | Custom theme marketplace / Zapier | ❌ won't | |
 
 ---
 
-## Original priority matrix (historical)
+## New candidates (post-v0.8, Sept 2026)
 
-Kept for context; **current schedule is ROADMAP v0.7 → v0.8 → Later**.
+Numbers #39–#53 are sequential and stable. Status `🆕 proposed → Later` means
+candidate for `ROADMAP.md Later` — not scheduled until capacity appears.
+#47 / #48 / #51 are filed into ROADMAP Later per approval.
+
+| # | Feature | Status | Effort | Notes |
+| --- | --- | --- | --- | --- |
+| 39 | Stop generation button | 🆕 proposed → Later | S | AbortController for Ask streaming; panel Stop/Cancel affordance |
+| 40 | Copy-code button on code blocks | 🆕 proposed → Later | S | Pure panel.js/CSS; per `<pre><code>` copy affordance |
+| 41 | Token estimate + cost meter in panel | 🆕 proposed → Later | S | Reuses usage meter + `getModelPricing`; high trust value |
+| 42 | In-conversation search (scoped Ctrl+F) | 🆕 proposed → Later | S | History search is global; this is in-chat filtering |
+| 43 | Response language selector | 🆕 proposed → Later | S | Cheaper than full i18n; precedes parked #9 |
+| 44 | Retry failed request with backoff | 🆕 proposed → Later | S | Small wrapper in providers.js for flaky gateways |
+| 45 | Provider health / Load-models error hint | 🆕 proposed → Later | S | Reduce empty-model-list confusion; Ollama CORS hint (`OLLAMA_ORIGINS`) |
+| 46 | Summarize / ELI5 / Translate templates | 🆕 proposed → Later | S | Reuses prompt library; no new infra |
+| 47 | Image / file attachment to prompt | 🆕 proposed → Later | M | Reuse vision path (`buildUserMessage`); 1280px/JPEG-0.72; Ask-only V1; strip dataURLs before session save; needs Anthropic mapping + Gemini-stream image fix |
+| 48 | PDF / long-doc summarization flow | 🆕 proposed → Later | M | New `src/pdf.js` regex extractor (no pdf.js dep); ≤10MB; reuse RAG chunks + 12k cap; honest fallback for scanned/encrypted |
+| 49 | Chat folders / tags + bulk delete | 🆕 proposed → Later | M | 50-chat cap exists; organization does not |
+| 50 | Per-provider model params UI (temp/top-p) | 🆕 proposed → Later | M | Custom prompts exist; no sampling control yet |
+| 51 | Agent recipe / workflow templates (subset) | 🆕 proposed → Later | M | 3 built-ins (summarize+extract, form-fill, compare links) via `AGENT_RECIPES` in prompts.js; reuse `runAgent` loop, 8-step cap, confirmations |
+| 52 | Selection bubble polish (mobile-safe) | 🆕 proposed → Later | M | Selection actions exist; no floating bubble |
+| 53 | Backup verify + restore dry-run | 🆕 proposed → Later | M | Gist + file backup exist; no integrity check |
+
+---
+
+## Original priority matrix (HISTORICAL)
+
+Kept for context; **current schedule is ROADMAP v0.8.0 → Later**.
+Do not schedule from this section — see “New candidates” above and ROADMAP Later.
 
 ### Quick wins (were 1–2 days each)
 
@@ -159,6 +196,21 @@ Kept for context; **current schedule is ROADMAP v0.7 → v0.8 → Later**.
 4. Offline capabilities → later
 5. Android deep integration → won't (outside this repo)
 
+### Quick wins (Sept 2026 — from #39–#46)
+
+1. #39 Stop generation → Later (S)
+2. #40 Copy-code button → Later (S)
+3. #41 Token/cost meter → Later (S)
+4. #43 Response language selector → Later (S)
+5. #45 Provider health + Ollama CORS hint → Later (S)
+
+### High-prio next (Sept 2026 — schedule when capacity allows)
+
+1. #47 Image attachment → Later (M)
+2. #48 PDF summarization → Later (M)
+3. #50 Model params UI → Later (M)
+4. #51 Agent recipes subset → Later (M)
+
 ---
 
-*Archive last updated: August 2026. ROADMAP.md updated with v0.9 quick wins. Edit ROADMAP.md for active planning.*
+*Archive last updated: September 2026. Active planning stays in ROADMAP.md.*

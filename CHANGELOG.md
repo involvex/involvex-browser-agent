@@ -3,6 +3,18 @@
 All notable changes to the extension. Versions follow the `manifest.json`
 `version` field.
 
+## Unreleased
+
+- **Image attachment (#47)** — 📎 button in the composer attaches a user image
+  (5MB cap, downscaled to 1280px JPEG 0.72) alongside the optional page
+  screenshot. Ask-mode only. Fixed Anthropic image blocks, Ollama multi-image,
+  and Gemini-stream image passthrough. Attachments are never persisted to
+  sessions (storage-quota safe).
+- **PDF summarization (#48)** — 📎 button also accepts PDFs (10MB cap). New
+  `src/pdf.js` vanilla extractor (literal/hex Tj/TJ, FlateDecode via
+  `DecompressionStream`, no dependencies) feeds the existing RAG path with the
+  filename as title. Honest fallback for scanned/encrypted PDFs.
+
 ## 0.8.0
 
 - **Agent streaming** — planning replies stream token-by-token (same providers as

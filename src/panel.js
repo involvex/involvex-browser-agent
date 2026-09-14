@@ -15,6 +15,7 @@ import {
 } from "./sessions.js";
 import { DEFAULT_PROMPTS } from "./prompts.js";
 import { logError } from "./errorlog.js";
+import { extractPdfText } from "./pdf.js";
 
 const messagesEl = document.getElementById("messages");
 const emptyEl = document.getElementById("empty");
@@ -48,6 +49,54 @@ const confirmBanner = document.getElementById("confirmBanner");
 const confirmDetail = document.getElementById("confirmDetail");
 const confirmOk = document.getElementById("confirmOk");
 const confirmDeny = document.getElementById("confirmDeny");
+const attachBtn = document.getElementById("attachBtn");
+const attachInput = document.getElementById("attachInput");
+const attachPreview = document.getElementById("attachPreview");
+const attachThumb = document.getElementById("attachThumb");
+const attachName = document.getElementById("attachName");
+const attachRemove = document.getElementById("attachRemove");
+
+/// Pending attachment (#47 image, #48 PDF):
+/// { kind: "image", dataUrl, name } | { kind: "pdf", text, name } | null.
+/// Never persisted to sessions/storage (dataURLs / long text blow the quota).
+let pendingAttachment = null;
+const ATTACH_MAX_EDGE = 1280;
+const ATTACH_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ATTACH_MAX_PDF_BYTES = 10 * 1024 * 1024;
+
+function clearAttachment() {
+  pendingAttachment = null;
+  if (attachInput) attachInput.value = "";
+  if (attachPreview) attachPreview.hidden = true;
+  if (attachThumb) {
+    attachThumb.hidden = false;
+    attachThumb.removeAttribute("src");
+  }
+}
+
+/// Downscale + re-encode to JPEG dataURL (mirrors background polishScreenshot).
+async function processAttachedImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const longest = Math.max(bitmap.width, bitmap.height);
+  const scale = longest > ATTACH_MAX_EDGE ? ATTACH_MAX_EDGE / longest : 1;
+  const dw = Math.max(1, Math.round(bitmap.width * scale));
+  const dh = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = dw;
+  canvas.height = dh;
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, dw, dh);
+  bitmap.close();
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.72),
+  );
+  if (!blob) throw new Error("Could not process image.");
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read image."));
+    reader.readAsDataURL(blob);
+  });
+}
 
 const history = [];
 let busy = false;
@@ -625,18 +674,32 @@ function handlePortMessage(m, port) {
 }
 
 async function sendAsk(text) {
+  let prep = null;
+  const attachedImage =
+    pendingAttachment?.kind === "image" ? pendingAttachment.dataUrl : null;
+  const attachedDoc =
+    pendingAttachment?.kind === "pdf"
+      ? { text: pendingAttachment.text, title: pendingAttachment.name }
+      : null;
   try {
     setStatus("Loading page context…");
     // Check cache first — if we have recent page text for this tab, use it
     const cachedText = getCachedPageText(targetTabId);
-    const prep = await chrome.runtime.sendMessage({
+    prep = await chrome.runtime.sendMessage({
       type: "prepareAsk",
       text,
-      history: history.slice(0, -1),
+      history: history.slice(0, -1).map((m) => ({
+        role: m.role,
+        content:
+          typeof m.content === "string" ? m.content : String(m.content || ""),
+      })),
       tabId: targetTabId,
       vision: visionToggle.checked,
       rag: ragToggle.checked,
       contextSection: contextSelect?.value || "full",
+      userImage: attachedImage,
+      docText: attachedDoc?.text || null,
+      docTitle: attachedDoc?.title || null,
     });
     if (!prep?.ok) {
       const errText = prep?.error || "Could not prepare request";
@@ -715,11 +778,13 @@ async function sendAsk(text) {
     logError("ask", errText);
     addMessage("assistant", `Error: ${errText}`, "error");
   } finally {
-    // Cache page text from response for future asks on this tab
-    // prep.pageText is set by the background worker when available
-    if (prep && prep.pageText) {
+    // Cache page text from response for future asks on this tab.
+    // Skipped when a PDF was attached: prep.pageText is the document text,
+    // not the tab's content, and must not pollute the per-tab cache.
+    if (prep?.pageText && !attachedDoc) {
       setCachedPageText(targetTabId, prep.pageText);
     }
+    clearAttachment();
     setBusy(false);
   }
 }
@@ -727,8 +792,20 @@ async function sendAsk(text) {
 function send(text, opts = {}) {
   if (busy || !text.trim()) return;
   const mode = agentToggle.checked ? "agent" : "ask";
+  if (mode === "agent" && pendingAttachment && !opts.regenerate) {
+    showToast(
+      "Attachments work in Ask mode — turn Agent off to send the file.",
+    );
+    clearAttachment();
+  }
   if (!opts.regenerate) {
-    addMessage("user", text);
+    const marker =
+      pendingAttachment?.kind === "image"
+        ? " 🖼"
+        : pendingAttachment?.kind === "pdf"
+          ? " 📄"
+          : "";
+    addMessage("user", text + marker);
     history.push({ role: "user", content: text });
     persistSession();
   }
@@ -1124,7 +1201,82 @@ exportBtn.addEventListener("click", (e) => {
 });
 newBtn.addEventListener("click", (e) => {
   e.preventDefault();
+  clearAttachment();
   newChat();
+});
+
+attachBtn?.addEventListener("click", () => attachInput?.click());
+attachRemove?.addEventListener("click", () => clearAttachment());
+attachInput?.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const isPdf =
+    file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  if (isPdf) {
+    if (file.size > ATTACH_MAX_PDF_BYTES) {
+      showToast("PDF too large (max 10MB).");
+      clearAttachment();
+      return;
+    }
+    try {
+      showToast("Extracting PDF text…");
+      const buf = await file.arrayBuffer();
+      const { text, pages, truncated, encrypted } = await extractPdfText(buf);
+      if (encrypted) {
+        showToast("Encrypted PDF — cannot extract text.");
+        logError("pdf/encrypted", file.name || "pdf");
+        clearAttachment();
+        return;
+      }
+      if (!text) {
+        showToast("No readable text — scanned PDF needs OCR (not supported).");
+        logError("pdf/scanned", file.name || "pdf");
+        clearAttachment();
+        return;
+      }
+      pendingAttachment = { kind: "pdf", text, name: file.name || "doc.pdf" };
+      if (attachThumb) attachThumb.hidden = true;
+      if (attachName) {
+        attachName.textContent = `📄 ${pendingAttachment.name}${pages ? ` (${pages}p)` : ""}${truncated ? " — truncated" : ""}`;
+      }
+      if (attachPreview) attachPreview.hidden = false;
+      showToast("PDF attached — ask to summarize it.");
+    } catch (err) {
+      showToast(`Could not read PDF: ${err.message || err}`);
+      logError("pdf/extract", String((err && err.message) || err));
+      clearAttachment();
+    }
+    return;
+  }
+  if (!file.type.startsWith("image/")) {
+    showToast("Only images and PDFs can be attached.");
+    clearAttachment();
+    return;
+  }
+  if (file.size > ATTACH_MAX_IMAGE_BYTES) {
+    showToast("Image too large (max 5MB).");
+    clearAttachment();
+    return;
+  }
+  if (!providerSupportsVision(providerSelect.value)) {
+    showToast(
+      "Current provider has no vision support — attach anyway or switch provider.",
+    );
+  }
+  try {
+    const dataUrl = await processAttachedImage(file);
+    pendingAttachment = { kind: "image", dataUrl, name: file.name || "image" };
+    if (attachThumb) {
+      attachThumb.hidden = false;
+      attachThumb.src = dataUrl;
+      attachThumb.alt = "";
+    }
+    if (attachName) attachName.textContent = pendingAttachment.name;
+    if (attachPreview) attachPreview.hidden = false;
+  } catch (err) {
+    showToast(`Could not attach image: ${err.message || err}`);
+    clearAttachment();
+  }
 });
 
 agentToggle.addEventListener("change", () => {

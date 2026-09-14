@@ -20,10 +20,31 @@ function deriveTitle(messages) {
   return text.length > 60 ? `${text.slice(0, 57)}…` : text;
 }
 
+/// Sanitizes message content for storage: image parts are replaced with a
+/// marker so dataURLs (screenshots, attachments) never blow the storage quota.
+export function sanitizeForStorage(messages) {
+  return (messages || []).map((m) => {
+    if (typeof m.content === "string") return m;
+    if (Array.isArray(m.content)) {
+      const text = m.content
+        .filter((p) => p.type === "text")
+        .map((p) => p.text)
+        .join("\n");
+      const imgs = m.content.filter((p) => p.type === "image_url").length;
+      return {
+        ...m,
+        content: imgs ? `${text}\n[image attached]`.trim() : text,
+      };
+    }
+    return { ...m, content: String(m.content || "") };
+  });
+}
+
 /// Inserts or updates a session and trims the store to MAX_SESSIONS.
 /// Returns the stored session (with its id).
 export async function saveSession(session) {
   if (!session.messages || !session.messages.length) return session;
+  session = { ...session, messages: sanitizeForStorage(session.messages) };
   const { sessions } = await chrome.storage.local.get(STORE_KEY);
   const list = Array.isArray(sessions) ? sessions : [];
   const now = Date.now();
@@ -67,7 +88,9 @@ export async function searchSessions(query) {
   return list.filter((s) => {
     if ((s.title || "").toLowerCase().includes(q)) return true;
     return (s.messages || []).some((m) =>
-      (m.content || "").toLowerCase().includes(q),
+      String(m.content || "")
+        .toLowerCase()
+        .includes(q),
     );
   });
 }

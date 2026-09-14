@@ -153,7 +153,34 @@
       </main>
     </div>
 
+    <div id="attachPreview" class="attach-preview" hidden>
+      <img id="attachThumb" class="attach-thumb" alt="" />
+      <span id="attachName" class="attach-name"></span>
+      <button
+        id="attachRemove"
+        class="text-btn"
+        type="button"
+        title="Remove attachment"
+      >
+        ✕
+      </button>
+    </div>
+
     <form id="composer" class="composer">
+      <button
+        id="attachBtn"
+        class="icon-btn"
+        type="button"
+        title="Attach image or PDF"
+      >
+        📎
+      </button>
+      <input
+        id="attachInput"
+        type="file"
+        accept="image/*,.pdf,application/pdf"
+        hidden
+      />
       <textarea
         id="input"
         rows="1"
